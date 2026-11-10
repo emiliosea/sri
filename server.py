@@ -509,6 +509,7 @@ class DemoSource:
                         pos["latitude"] += 0.0004 * math.cos(n["_heading"])
                         pos["longitude"] += 0.0004 * math.sin(n["_heading"])
                         pos["time"] = now
+                        _pos_rx[n["num"]] = now       # "llegó una posición nueva"
                     m = n["deviceMetrics"]
                     m["batteryLevel"] = max(0, m["batteryLevel"] - random.choice([0, 0, 1]))
                     m["voltage"] = round(3.3 + 0.9 * m["batteryLevel"] / 100, 2)
@@ -524,7 +525,7 @@ class DemoSource:
 
     # Detector de caídas simulado: un evento cada ~45 s (para probar la interfaz)
     _imp = {"available": True, "sensor_ok": True, "active": False, "type": None, "peak_g": None,
-            "time": None, "count": 0, "threshold_g": 40.0, "accel_g": 1.0}
+            "time": None, "count": 0, "threshold_g": 7.0, "accel_g": 1.0}
     _imp_next = 0
 
     def _demo_impact(self):
@@ -534,13 +535,14 @@ class DemoSource:
         if now >= DemoSource._imp_next:
             DemoSource._imp_next = now + 45
             caida = random.random() < 0.5
-            pico, reposo = round(random.uniform(5, 11), 2), round(random.uniform(0.98, 1.06), 2)
-            DemoSource._imp.update({"active": True, "type": "caida" if caida else "golpe",
-                                    "peak_g": pico, "rest_g": reposo, "diff_g": round(pico - reposo, 2),
-                                    "time": int(now), "count": DemoSource._imp["count"] + 1})
-            DemoSource._imp["last_move"] = {"peak_g": pico, "rest_g": reposo,
-                                            "diff_g": round(pico - reposo, 2), "time": int(now)}
-            log_impact(dict(DemoSource._imp))
+            pico, reposo = round(random.uniform(4, 12), 2), round(random.uniform(0.98, 1.06), 2)
+            dif = round(pico - reposo, 2)
+            DemoSource._imp["last_move"] = {"peak_g": pico, "rest_g": reposo, "diff_g": dif, "time": int(now)}
+            if dif >= DemoSource._imp["threshold_g"]:      # igual que el firmware: solo alerta sobre el umbral
+                DemoSource._imp.update({"active": True, "type": "caida" if caida else "golpe",
+                                        "peak_g": pico, "rest_g": reposo, "diff_g": dif,
+                                        "time": int(now), "count": DemoSource._imp["count"] + 1})
+                log_impact(dict(DemoSource._imp))
         DemoSource._imp["accel_g"] = round(random.uniform(0.97, 1.03), 2)
         return dict(DemoSource._imp)
 
@@ -913,7 +915,8 @@ def similitud_wifi(a, b):
 
 def lugares_path():
     import os
-    return os.path.join(os.path.dirname(CONN_FILE), "lugares_wifi.json")
+    name = "lugares_wifi_demo.json" if state.get("mode") == "demo" else "lugares_wifi.json"
+    return os.path.join(os.path.dirname(CONN_FILE), name)
 
 
 def load_lugares():

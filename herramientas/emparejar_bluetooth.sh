@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Empareja la PC con el nodo Meshtastic por Bluetooth (solo hace falta una vez).
+# (Etapa Meshtastic) Empareja la PC con el nodo por Bluetooth. Con MeshCore + BLE_NO_PIN ya no hace falta.
 # Cuando aparezca "Enter passkey", escribe el PIN del nodo (por defecto 123456) y Enter.
 ADDR="${1:-AA:BB:CC:DD:EE:FF}"
 

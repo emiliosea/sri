@@ -300,6 +300,7 @@
   .grid td.izq, .grid th.izq { text-align: left; }
   .grid td.fila { background: var(--bg-2); color: var(--fg-3); text-align: center; width: 30px; }
   .grid .igroup { margin: 14px 0 4px; }
+  #devicePane #infoBody { max-height: none; overflow: visible; padding: 0; }
   #infoBody table { max-width: 720px; }
   #infoBody td:first-child { background: var(--bg-2); color: var(--fg-2); text-align: left; width: 40%; }
   #infoBody td { text-align: left; }
@@ -487,7 +488,7 @@
     <div id="map"></div>
   <div id="chartPane" style="display:none">
     <div class="chead">
-      <div><b>Aceleración de RABANITO</b> <span class="sub">|a| en g, en vivo (1 lectura por segundo)</span></div>
+      <div><b>Aceleración de <span id="chartNode">RABANITO</span></b> <span class="sub">|a| en g, en vivo (1 lectura por segundo)</span></div>
       <div class="crange">ventana:
         <button class="cbtn on" data-s="60">1 min</button><button class="cbtn" data-s="300">5 min</button><button class="cbtn" data-s="900">15 min</button>
         <button class="cbtn" id="chartTableBtn">[ Tabla ]</button>
@@ -1196,6 +1197,7 @@ function renderBars(status) {
   const p = me && posOf(me);
   document.getElementById('nameBox').textContent = me ? me.long_name : '--';
   document.getElementById('tbNode').textContent = me ? `- ${me.long_name}` : '';
+  document.getElementById('chartNode').textContent = me ? me.long_name : 'el nodo';
   const partes = [];
   partes.push(status.connected ? 'conectado' : 'desconectado');
   if (p) partes.push(`${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} ${p.live ? '(GPS actual)' : `(visto ${ago(p.position_time)})`}`);
@@ -1394,6 +1396,8 @@ function showSheet(name) {
   if (name === 'eventos') loadEvents();
 }
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => showSheet(b.dataset.tab));
+// ?hoja=grafica|eventos|dispositivo abre esa hoja al cargar (útil para enlaces y capturas)
+{ const h = new URLSearchParams(location.search).get('hoja'); if (h && SHEETS[h]) setTimeout(() => showSheet(h), 300); }
 document.querySelectorAll('[data-sheet]').forEach(b => b.onclick = () => showSheet(b.dataset.sheet));
 
 // Pestañas de la cinta de opciones
