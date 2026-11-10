@@ -11,7 +11,7 @@ gráfica en vivo, registro de eventos, y ruta automática desde esta computadora
 
 | Componente | Estado |
 |---|---|
-| Interfaz web |
+| Interfaz web | Funcionando |
 | Conexión con el nodo por **Bluetooth** o **USB** | Funcionando (Linux) |
 | Firmware MeshCore v1.18.0 modificado (`v1.18.0-rabanito`) | Instalado en RABANITO |
 | Detector de caídas/golpes (banco de 5 s, pico - reposo) | Funcionando; 35 eventos de prueba |
