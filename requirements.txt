@@ -1,0 +1,5 @@
+meshcore>=2.3
+meshtastic>=2.5
+flask>=3.0
+# bleak 3.x se queda colgado al conectar por Bluetooth en Linux
+bleak>=1.0,<2

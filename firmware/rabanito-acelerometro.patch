@@ -1,0 +1,397 @@
+diff --git a/src/helpers/nrf52/SerialBLEInterface.cpp b/src/helpers/nrf52/SerialBLEInterface.cpp
+index 6ed16bc..78253fc 100644
+--- a/src/helpers/nrf52/SerialBLEInterface.cpp
++++ b/src/helpers/nrf52/SerialBLEInterface.cpp
+@@ -30,6 +30,10 @@ void SerialBLEInterface::onConnect(uint16_t connection_handle) {
+     instance->_conn_handle = connection_handle;
+     instance->_isDeviceConnected = false;
+     instance->clearBuffers();
++#ifdef BLE_NO_PIN
++    // Sin PIN no hay paso de seguridad (onSecured no llega): la conexión vale desde ya.
++    instance->_isDeviceConnected = true;
++#endif
+   }
+ }
+ 
+@@ -169,7 +173,11 @@ void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code
+   Bluefruit.setTxPower(BLE_TX_POWER);
+   Bluefruit.setName(dev_name);
+ 
++#ifdef BLE_NO_PIN
++  Bluefruit.Security.setMITM(false);   // datos sin PIN (ver BLE_NO_PIN abajo)
++#else
+   Bluefruit.Security.setMITM(true);
++#endif
+   Bluefruit.Security.setPIN(charpin);
+   Bluefruit.Security.setIOCaps(true, false, false);
+   Bluefruit.Security.setPairPasskeyCallback(onPairingPasskey);
+@@ -181,7 +189,13 @@ void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code
+ 
+   Bluefruit.setEventCallback(onBLEEvent);
+ 
++#ifdef BLE_NO_PIN
++  // RABANITO: el canal de datos queda abierto (sin PIN) porque BlueZ en Linux no logra el
++  // emparejamiento con PIN. La actualización por Bluetooth (DFU) sigue protegida con PIN.
++  bleuart.setPermission(SECMODE_OPEN, SECMODE_OPEN);
++#else
+   bleuart.setPermission(SECMODE_ENC_WITH_MITM, SECMODE_ENC_WITH_MITM);
++#endif
+   bleuart.begin();
+   bleuart.setRxCallback(onBleUartRX);
+ 
+diff --git a/variants/t1000-e/platformio.ini b/variants/t1000-e/platformio.ini
+index 8456dc9..420c43e 100644
+--- a/variants/t1000-e/platformio.ini
++++ b/variants/t1000-e/platformio.ini
+@@ -73,6 +73,7 @@ extends = t1000-e
+ board_build.ldscript = boards/nrf52840_s140_v7_extrafs.ld
+ board_upload.maximum_size = 708608
+ build_flags = ${t1000-e.build_flags}
++  -D FIRMWARE_VERSION='"v1.18.0-rabanito"'   ; MeshCore + detección de caídas (acelerómetro)
+   -I examples/companion_radio/ui-orig
+   -D MAX_CONTACTS=350
+   -D MAX_GROUP_CHANNELS=40
+@@ -98,6 +99,8 @@ extends = t1000-e
+ board_build.ldscript = boards/nrf52840_s140_v7_extrafs.ld
+ board_upload.maximum_size = 708608
+ build_flags = ${t1000-e.build_flags}
++  -D FIRMWARE_VERSION='"v1.18.0-rabanito-ble"'   ; MeshCore + detección de caídas, por Bluetooth
++  -D BLE_NO_PIN                                  ; datos por Bluetooth sin PIN (Linux/BlueZ)
+   -I examples/companion_radio/ui-orig
+   -D MAX_CONTACTS=350
+   -D MAX_GROUP_CHANNELS=40
+diff --git a/variants/t1000-e/target.cpp b/variants/t1000-e/target.cpp
+index 70a6435..6fc0192 100644
+--- a/variants/t1000-e/target.cpp
++++ b/variants/t1000-e/target.cpp
+@@ -3,6 +3,8 @@
+ #include "target.h"
+ #include <helpers/sensors/MicroNMEALocationProvider.h>
+ #include <helpers/sensors/AirohaSleep.h>
++#include <Wire.h>
++#include <math.h>
+ 
+ T1000eBoard board;
+ 
+@@ -104,9 +106,161 @@ bool T1000SensorManager::begin() {
+   digitalWrite(GPS_RESET, HIGH);
+   delay(10);
+   digitalWrite(GPS_RESET, LOW);
++
++  acc_begin();
++  return true;
++}
++
++// ===========================================================================
++// Acelerómetro QMA6100P (I2C 0x12): detección de caídas y golpes
++// ===========================================================================
++#define QMA_ADDR        0x12
++#define QMA_CHIP_ID     0x90
++#define QMA_RANGO       0x0F      // registro 0x0F: 0x01=±2g 0x02=±4g 0x04=±8g 0x08=±16g 0x0F=±32g
++#define QMA_LSB_PER_G   256.0f    // rango ±32 g con datos de 14 bits: 16384 / 64 g = 256 por g
++#define ACC_PERIOD_MS   20        // 50 lecturas por segundo -> banco de 250 = 5 s
++#define QUIETO_N        50        // ventana para decidir "en reposo": último 1 s
++#define QUIETO_RANGO_G  0.15f     // en reposo si (máx - mín) del último segundo <= esto
++#define FREEFALL_G      0.35f     // por debajo de esto el nodo está "cayendo"
++#define FREEFALL_N      3         // 3 lecturas seguidas (60 ms) = caída libre
++
++static bool qma_write(uint8_t reg, uint8_t val) {
++  Wire.beginTransmission(QMA_ADDR);
++  Wire.write(reg);
++  Wire.write(val);
++  return Wire.endTransmission() == 0;
++}
++
++static bool qma_read(uint8_t reg, uint8_t* buf, uint8_t n) {
++  Wire.beginTransmission(QMA_ADDR);
++  Wire.write(reg);
++  if (Wire.endTransmission(false) != 0) return false;
++  if (Wire.requestFrom((uint8_t)QMA_ADDR, n) != n) return false;
++  for (uint8_t i = 0; i < n; i++) buf[i] = Wire.read();
++  return true;
++}
++
++void T1000SensorManager::acc_begin() {
++  digitalWrite(PIN_3V3_ACC_EN, HIGH);   // MeshCore deja apagada la alimentación del acelerómetro
++  delay(10);
++  uint8_t id = 0;
++  if (!qma_read(0x00, &id, 1) || id != QMA_CHIP_ID) {
++    acc_ok = false;
++    next_acc_retry_ms = millis() + 5000;  // reintentar más tarde
++    return;
++  }
++  qma_write(0x36, 0xB6); delay(5);      // reset por software
++  qma_write(0x36, 0x00); delay(5);
++  qma_write(0x11, 0x80);                // modo activo
++  qma_write(0x11, 0x84);
++  qma_write(0x4A, 0x20);                // secuencia de arranque recomendada por QST
++  qma_write(0x56, 0x01);
++  qma_write(0x5F, 0x80); delay(2);
++  qma_write(0x5F, 0x00); delay(10);
++  qma_write(0x0F, QMA_RANGO);           // rango ±32 g
++  acc_ok = true;
++}
++
++bool T1000SensorManager::acc_read(float& g) {
++  uint8_t b[6];
++  if (!qma_read(0x01, b, 6)) return false;
++  // 14 bits con signo, alineados a la izquierda en dos bytes por eje
++  float a[3];
++  for (int i = 0; i < 3; i++) {
++    a[i] = (int16_t)((b[2 * i + 1] << 8) | (b[2 * i] & 0xFC)) / 4 / QMA_LSB_PER_G;
++    raw_sum[i] += a[i];                               // promedio sin calibrar (telemetría)
++    a[i] = (a[i] - cal_off[i]) / cal_gain[i];         // corrección por eje
++  }
++  raw_n++;
++  g = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+   return true;
+ }
+ 
++// Lectura del banco: edad 0 = lectura más reciente
++#define HIST_AT(age) hist[(hist_pos - 1 - (age) + HIST_N) % HIST_N]
++
++void T1000SensorManager::acc_loop() {
++  unsigned long now = millis();
++  if (!acc_ok) {
++    if ((long)(now - next_acc_retry_ms) >= 0) acc_begin();
++    return;
++  }
++  if ((long)(now - next_acc_ms) < 0) return;
++  next_acc_ms = now + ACC_PERIOD_MS;
++
++  float g;
++  if (!acc_read(g)) return;
++  acc_g = g;
++  if (g < acc_min) acc_min = g;
++  if (g > acc_max) acc_max = g;
++
++  // 1) Guardar en el banco circular de 5 s (milésimas de g)
++  float mg = g * 1000.0f;
++  hist[hist_pos] = (uint16_t)(mg > 65000.0f ? 65000.0f : mg);
++  hist_pos = (hist_pos + 1) % HIST_N;
++  if (hist_n < HIST_N) hist_n++;
++  if (hist_n < QUIETO_N) return;
++
++  // 2) ¿Está en reposo? La aceleración casi no cambia durante el último segundo
++  uint16_t lo = 65535, hi = 0;
++  for (int age = 0; age < QUIETO_N; age++) {
++    uint16_t v = HIST_AT(age);
++    if (v < lo) lo = v;
++    if (v > hi) hi = v;
++  }
++  bool ahora_quieto = (hi - lo) <= (uint16_t)(QUIETO_RANGO_G * 1000);
++
++  // 3) Al pasar de "en movimiento" a "en reposo": revisar el último pico
++  if (ahora_quieto && !quieto) acc_evaluar(now);
++  quieto = ahora_quieto;
++}
++
++void T1000SensorManager::acc_evaluar(unsigned long now) {
++  // Valor en reposo: promedio del último segundo
++  uint32_t suma = 0;
++  for (int age = 0; age < QUIETO_N; age++) suma += HIST_AT(age);
++  float reposo = suma / (float)QUIETO_N / 1000.0f;
++
++  // Pico: máximo de todo el banco (últimos 5 s) y cuántas lecturas atrás ocurrió
++  uint16_t pico_mg = 0;
++  int pico_age = 0;
++  for (int age = 0; age < hist_n; age++) {
++    uint16_t v = HIST_AT(age);
++    if (v > pico_mg) { pico_mg = v; pico_age = age; }
++  }
++
++  // ¿Hubo caída libre ANTES del pico? (lecturas más viejas que el pico)
++  bool fue_caida = false;
++  int racha = 0;
++  for (int age = pico_age + 1; age < hist_n; age++) {
++    if (HIST_AT(age) < (uint16_t)(FREEFALL_G * 1000)) {
++      if (++racha >= FREEFALL_N) { fue_caida = true; break; }
++    } else {
++      racha = 0;
++    }
++  }
++
++  float pico = pico_mg / 1000.0f;
++  float dif = pico - reposo;
++  uint32_t epoch_pico = rtc_clock.getCurrentTime() - (uint32_t)((pico_age * ACC_PERIOD_MS) / 1000);
++
++  // Se informa siempre (sirve para calibrar el umbral), alerte o no
++  ult_pico = pico; ult_reposo = reposo; ult_dif = dif; ult_epoch = epoch_pico;
++
++  if (dif >= umbral_g) {
++    strcpy(impacto_tipo, fue_caida ? "caida" : "golpe");
++    impacto_pico = pico;
++    impacto_reposo = reposo;
++    impacto_dif = dif;
++    impacto_epoch = epoch_pico;
++    impacto_cuenta++;
++    impacto = true;
++  }
++
++  // Vaciar el banco para no volver a contar el mismo pico
++  hist_n = 0;
++}
++
+ bool T1000SensorManager::querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) {
+   if (requester_permissions & TELEM_PERM_LOCATION) {   // does requester have permission?
+     telemetry.addGPS(TELEM_CHANNEL_SELF, node_lat, node_lon, node_altitude);
+@@ -115,6 +269,15 @@ bool T1000SensorManager::querySensors(uint8_t requester_permissions, CayenneLPP&
+     // Firmware reports light as a 0-100 % scale, but expose it via Luminosity so app labels it "Luminosity".
+     telemetry.addLuminosity(TELEM_CHANNEL_SELF, t1000e_get_light());
+     telemetry.addTemperature(TELEM_CHANNEL_SELF, t1000e_get_temperature());
++    // Acelerómetro: promedio de cada eje SIN calibrar desde la telemetría anterior (canal 2).
++    // La interfaz lo usa para calibrar con el método de las 6 caras.
++    if (acc_ok) {
++      if (raw_n > 0) {
++        for (int i = 0; i < 3; i++) { raw_avg[i] = raw_sum[i] / raw_n; raw_sum[i] = 0; }
++        raw_n = 0;
++      }
++      telemetry.addAccelerometer(2, raw_avg[0], raw_avg[1], raw_avg[2]);
++    }
+   }
+   return true;
+ }
+@@ -123,6 +286,7 @@ void T1000SensorManager::loop() {
+   static long next_gps_update = 0;
+ 
+   _nmea->loop();
++  acc_loop();
+ 
+   if (millis() > next_gps_update) {
+     if (gps_active && _nmea->isValid()) {
+@@ -134,18 +298,83 @@ void T1000SensorManager::loop() {
+   }
+ }
+ 
+-int T1000SensorManager::getNumSettings() const { return 1; }  // just one supported: "gps" (power switch)
++// Variables que la app/interfaz puede leer y cambiar (CMD_GET/SET_CUSTOM_VARS).
++// Los valores no pueden llevar ',' ni ':' porque son los separadores del protocolo.
++//   gps          1/0   GPS encendido
++//   impacto      1/0   alarma de caída/golpe enganchada (escribir 0 para borrarla)
++//   impacto_info tipo|pico*100|epoch|cuenta|dif*100|reposo*100   (o "sin_sensor")
++//   umbral_g     diferencia mínima pico - reposo para alertar, en g (1 a 55; 40 por defecto)
++//   acel         actual*100|mín*100|máx*100 en g; mín y máx desde la lectura anterior (se reinician
++//                al leer), así una gráfica que lee 1 vez por segundo no se pierde los picos
++//   acc_cal      (solo escritura) calibración "ox|oy|oz|gx|gy|gz" en milésimas: a = (crudo - o) / g
++//   ultimo       último movimiento evaluado: pico*100|reposo*100|dif*100|epoch (alerte o no)
++int T1000SensorManager::getNumSettings() const { return 6; }
+ 
+ const char* T1000SensorManager::getSettingName(int i) const {
+-  return i == 0 ? "gps" : NULL;
++  switch (i) {
++    case 0: return "gps";
++    case 1: return "impacto";
++    case 2: return "impacto_info";
++    case 3: return "umbral_g";
++    case 4: return "acel";
++    case 5: return "ultimo";
++  }
++  return NULL;
+ }
+ const char* T1000SensorManager::getSettingValue(int i) const {
+-  if (i == 0) {
+-    return gps_active ? "1" : "0";
++  switch (i) {
++    case 0: return gps_active ? "1" : "0";
++    case 1: return impacto ? "1" : "0";
++    case 2:
++      if (!acc_ok) return "sin_sensor";
++      snprintf(vbuf[2], sizeof(vbuf[2]), "%s|%d|%lu|%u|%d|%d", impacto_tipo, (int)(impacto_pico * 100),
++               (unsigned long)impacto_epoch, (unsigned)impacto_cuenta,
++               (int)(impacto_dif * 100), (int)(impacto_reposo * 100));
++      return vbuf[2];
++    case 3:
++      snprintf(vbuf[3], sizeof(vbuf[3]), "%d.%02d", (int)umbral_g, (int)(umbral_g * 100) % 100);
++      return vbuf[3];
++    case 4:
++      if (!acc_ok) return "-";
++      if (acc_max == 0) { acc_min = acc_g; acc_max = acc_g; }   // sin lecturas nuevas
++      snprintf(vbuf[4], sizeof(vbuf[4]), "%d|%d|%d", (int)(acc_g * 100), (int)(acc_min * 100),
++               (int)(acc_max * 100));
++      acc_min = 99; acc_max = 0;                                 // empezar otro intervalo
++      return vbuf[4];
++    case 5:
++      if (!acc_ok || !ult_epoch) return "-";
++      snprintf(vbuf[5], sizeof(vbuf[5]), "%d|%d|%d|%lu", (int)(ult_pico * 100), (int)(ult_reposo * 100),
++               (int)(ult_dif * 100), (unsigned long)ult_epoch);
++      return vbuf[5];
+   }
+   return NULL;
+ }
+ bool T1000SensorManager::setSettingValue(const char* name, const char* value) {
++  if (strcmp(name, "impacto") == 0) {          // la interfaz borra la alarma con "impacto:0"
++    if (strcmp(value, "0") == 0) impacto = false;
++    return true;
++  }
++  if (strcmp(name, "acc_cal") == 0) {          // "ox|oy|oz|gx|gy|gz" en milésimas de g
++    long v[6];
++    const char* p = value;
++    for (int i = 0; i < 6; i++) {
++      char* end;
++      v[i] = strtol(p, &end, 10);
++      if (end == p) return false;
++      p = (*end == '|') ? end + 1 : end;
++    }
++    for (int i = 0; i < 3; i++) {
++      if (v[i] < -5000 || v[i] > 5000 || v[i + 3] < 500 || v[i + 3] > 2000) return false;
++    }
++    for (int i = 0; i < 3; i++) { cal_off[i] = v[i] / 1000.0f; cal_gain[i] = v[i + 3] / 1000.0f; }
++    return true;
++  }
++  if (strcmp(name, "umbral_g") == 0) {
++    float u = atof(value);
++    if (u < 1.0f || u > 55.0f) return false;     // con ±32 g por eje, la magnitud llega a ~55 g
++    umbral_g = u;
++    return true;
++  }
+   if (strcmp(name, "gps") == 0) {
+     if (strcmp(value, "0") == 0) {
+       stop_gps();
+diff --git a/variants/t1000-e/target.h b/variants/t1000-e/target.h
+index db003cc..a6ec4a8 100644
+--- a/variants/t1000-e/target.h
++++ b/variants/t1000-e/target.h
+@@ -19,6 +19,43 @@ class T1000SensorManager: public SensorManager {
+   void start_gps();
+   void sleep_gps();
+   void stop_gps();
++
++  // --- Acelerómetro QMA6100P: detección de caídas y golpes (agregado para RABANITO) ---
++  // Banco de 5 s de lecturas; al quedar el nodo en reposo se compara el último pico con
++  // el valor en reposo: si (pico - reposo) >= umbral_g, alerta.
++  static const int HIST_N = 250;    // 5 s a 50 lecturas por segundo
++  bool acc_ok = false;              // ¿se encontró el sensor?
++  float acc_g = 0;                  // magnitud actual de la aceleración (g)
++  mutable float acc_min = 99, acc_max = 0;  // mín/máx desde la última lectura de "acel" (para la gráfica)
++  // Calibración por eje (6 caras): a_cal = (a_crudo - offset) / ganancia. La envía la interfaz.
++  float cal_off[3] = {0, 0, 0};
++  float cal_gain[3] = {1, 1, 1};
++  // Promedio de los ejes SIN calibrar desde la última telemetría (para calcular la calibración)
++  float raw_sum[3] = {0, 0, 0};
++  int raw_n = 0;
++  float raw_avg[3] = {0, 0, 0};
++  float umbral_g = 40.0f;           // diferencia mínima pico - reposo para alertar (g)
++  uint16_t hist[HIST_N];            // banco circular, en milésimas de g
++  int hist_pos = 0;                 // dónde se escribe la próxima lectura
++  int hist_n = 0;                   // cuántas lecturas válidas hay (hasta HIST_N)
++  bool quieto = true;               // ¿estaba en reposo en la lectura anterior?
++  bool impacto = false;             // alarma "enganchada" hasta que la interfaz la borre
++  char impacto_tipo[8] = "-";       // "caida" o "golpe"
++  float impacto_pico = 0;           // pico del último evento (g)
++  float impacto_reposo = 0;         // valor en reposo después del evento (g)
++  float impacto_dif = 0;            // pico - reposo (g)
++  uint32_t impacto_epoch = 0;       // hora del pico (epoch, reloj del nodo)
++  uint16_t impacto_cuenta = 0;      // eventos desde que se encendió
++  float ult_pico = 0, ult_reposo = 0, ult_dif = 0;  // último movimiento evaluado (alerte o no)
++  uint32_t ult_epoch = 0;
++  unsigned long next_acc_ms = 0;
++  unsigned long next_acc_retry_ms = 0;
++  mutable char vbuf[6][64];         // textos de las "custom vars"
++
++  void acc_evaluar(unsigned long now);
++  void acc_begin();
++  bool acc_read(float& g);
++  void acc_loop();
+ public:
+   T1000SensorManager(LocationProvider &nmea): _nmea(&nmea) { }
+   bool begin() override;

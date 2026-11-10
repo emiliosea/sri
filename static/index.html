@@ -1,0 +1,1602 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rastreador MeshCore</title>
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<style>
+  /* ============================================================
+     Paleta: monocromática (blanco, negro y grises)
+     + azul  = resalto principal (botones, este nodo, en vivo, OK)
+     + rojo  = alertas (errores, desconectado, última posición)
+     ============================================================ */
+  :root {
+    --mono: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+    --bg: #ffffff;        /* fondo de paneles */
+    --bg-2: #f2f2f2;      /* fondo secundario (barra lateral, cajas) */
+    --bg-hover: #e6e6e6;
+    --fg: #000000;        /* texto principal */
+    --fg-2: #444444;      /* texto secundario */
+    --fg-3: #777777;      /* etiquetas tenues */
+    --line: #d0d0d0;      /* bordes */
+    --blue: #0047ff;
+    --blue-bg: #e5ecff;
+    --red: #e00000;
+    --red-bg: #ffe5e5;
+    --gray-mark: #8c8c8c; /* marcadores sin datos recientes */
+  }
+  body.dark {
+    --bg: #000000;
+    --bg-2: #111111;
+    --bg-hover: #222222;
+    --fg: #ffffff;
+    --fg-2: #c8c8c8;
+    --fg-3: #8c8c8c;
+    --line: #333333;
+    --blue: #4d7dff;
+    --blue-bg: #0a1a40;
+    --red: #ff4040;
+    --red-bg: #3a0a0a;
+    --gray-mark: #6e6e6e;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--mono); height: 100vh; color: var(--fg); background: var(--bg);
+         display: grid; grid-template-rows: auto auto auto 1fr auto; }
+  .leaflet-container, .leaflet-tooltip { font-family: var(--mono); }
+  .mono { font-family: var(--mono); }
+
+  /* ---------- Barra lateral ---------- */
+  #sidebar { width: 370px; display: flex; flex-direction: column; gap: 8px; padding: 8px; overflow-y: auto;
+             border-right: 1px solid var(--line); background: var(--bg-2); }
+  header { padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--bg); }
+  header h1 { font-size: 17px; margin: 0 0 6px; }
+  .hrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .hrow h1 { margin: 0 0 6px; }
+  #status { font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--fg-3); display: inline-block; }
+  .dot.ok { background: var(--blue); } .dot.err { background: var(--red); }
+  #error { font-size: 12px; color: var(--red); margin-top: 4px; }
+
+  /* ---------- Botones ---------- */
+  button, .actions a { font: inherit; }
+  #themeBtn, .actions button, .actions a, .mini, .cbtn {
+    font-size: 12px; padding: 3px 10px; border: 1px solid var(--fg); border-radius: 0;
+    background: var(--bg); color: var(--fg); cursor: pointer; white-space: nowrap; text-decoration: none; }
+  #themeBtn:hover, .actions button:hover, .actions a:hover, .mini:hover, .cbtn:hover { background: var(--fg); color: var(--bg); }
+  .mini { font-size: 11px; padding: 0 6px; margin-left: 4px; }
+  #pingRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
+  #pingResult { flex-basis: 100%; }
+  #pingBtn { font-size: 12px; padding: 4px 12px; border: 1px solid var(--blue); border-radius: 0;
+             background: var(--blue); color: #fff; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+  #pingBtn:hover { background: var(--bg); color: var(--blue); }
+  #pingBtn:disabled { opacity: .6; cursor: wait; }
+  #pingResult.ok { color: var(--blue); } #pingResult.err { color: var(--red); }
+  #pingProof { display: none; margin-top: 6px; padding: 6px 8px; background: var(--bg-2); border: 1px solid var(--line);
+               font-size: 12px; color: var(--fg-2); line-height: 1.6; }
+  #pingProof .ok { color: var(--blue); font-weight: 700; } #pingProof .err { color: var(--red); font-weight: 700; }
+
+  /* ---------- Lista de nodos ---------- */
+  #list { overflow-y: auto; }
+  .node { padding: 10px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .node:hover { background: var(--bg-hover); }
+  .node.selected { background: var(--blue-bg); border-left: 3px solid var(--blue); padding-left: 13px; }
+  .node.stale { opacity: .55; }
+  .row1 { display: flex; justify-content: space-between; align-items: baseline; }
+  .name { font-weight: 700; font-size: 14px; }
+  .ago { font-size: 12px; color: var(--fg-3); }
+  .meta { font-size: 12px; color: var(--fg-2); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  .badge { font-size: 11px; border: 1px solid var(--fg-2); color: var(--fg-2); padding: 0 5px; margin-left: 4px; }
+
+  /* ---------- Caja de "este nodo" ---------- */
+  #mine { padding: 10px 12px; }
+  #mine .title { font-size: 12px; color: var(--fg-3); text-transform: uppercase; letter-spacing: .04em; }
+  .coordbox .coords { font-family: var(--mono); font-size: 18px; font-weight: 700; margin: 6px 0 2px; }
+  .coordbox .sub { font-size: 12px; color: var(--fg-2); }
+  #mine .waiting { font-size: 13px; color: var(--red); margin-top: 6px; }
+  /* ---------- Detector de caídas (foco) ---------- */
+  .foco { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: middle;
+          background: var(--gray-mark); border: 1px solid var(--fg-3); margin-left: 6px; flex-shrink: 0; }
+  .foco.on { background: var(--red); border-color: var(--red); box-shadow: 0 0 6px 2px var(--red);
+             animation: parpadeo 1s steps(2, start) infinite; }
+  .foco.na { background: transparent; border-style: dashed; }
+  @keyframes parpadeo { 50% { opacity: .35; } }
+  #detector { padding: 10px 12px; font-size: 12px; }
+  #detector.alarma { background: var(--red-bg); }
+  #detector .drow { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  #detector .drow .foco { margin-left: 0; width: 16px; height: 16px; }
+  #detEstado { font-weight: 700; }
+  #detector.alarma #detEstado { color: var(--red); }
+  #detDetalle { margin: 4px 0 6px; line-height: 1.5; }
+  #detCtrl input { width: 64px; flex: none; }
+  /* ---------- Calibración del acelerómetro ---------- */
+  #sideFooter { display: flex; align-items: center; gap: 8px; padding: 8px 16px; font-size: 12px;
+                border-top: 1px solid var(--line); background: var(--bg); }
+  #calibDlg { width: min(460px, 92vw); padding: 0; border: 1px solid var(--fg); border-radius: 0;
+              background: var(--bg); color: var(--fg); font-family: var(--mono); font-size: 12px; }
+  #calibDlg::backdrop { background: rgba(0, 0, 0, .45); }
+  #calibDlg .dhead { display: flex; justify-content: space-between; align-items: center;
+                     padding: 10px 16px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  #calibBody { padding: 12px 16px 16px; line-height: 1.5; }
+  .caras { display: flex; gap: 4px; margin: 8px 0; }
+  .caras span { flex: 1; text-align: center; padding: 3px 0; border: 1px solid var(--fg-3); color: var(--fg-3); }
+  .caras span.ok { border-color: var(--blue); background: var(--blue); color: #fff; }
+  #calibMsg.err { color: var(--red); } #calibMsg.ok { color: var(--blue); }
+  .lastseen-tag { display: inline-block; margin-top: 6px; padding: 2px 8px; font-size: 12px; font-weight: 700;
+                  color: var(--red); background: var(--red-bg); border: 1px solid var(--red); }
+  .actions { margin-top: 8px; display: flex; gap: 8px; }
+  .timers { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 13px; }
+  .timers div { display: flex; justify-content: space-between; padding: 2px 0; }
+  .timers span:first-child { color: var(--fg-2); }
+  .timers .live { font-weight: 700; color: var(--blue); }
+
+  /* ---------- Información del dispositivo ---------- */
+  #info { border-bottom: 1px solid var(--line); background: var(--bg); font-size: 12px; }
+
+  /* ---------- Panel de conexión ---------- */
+  #conn { border-bottom: 1px solid var(--line); background: var(--bg); font-size: 12px; }
+  #conn summary { padding: 10px 16px; cursor: pointer; font-weight: 700; font-size: 13px; }
+  #conn summary:hover { background: var(--bg-hover); }
+  #connSummary { font-weight: 400; color: var(--fg-2); }
+  #connBody { padding: 0 16px 12px; }
+  .ctabs { display: flex; margin-bottom: 10px; }
+  .ctabs button { flex: 1; font: inherit; font-size: 12px; padding: 4px 0; cursor: pointer;
+                  border: 1px solid var(--fg); background: var(--bg); color: var(--fg); }
+  .ctabs button + button { border-left: none; }
+  .ctabs button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .crow { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .crow select, .crow input { flex: 1; min-width: 0; font: inherit; font-size: 12px; padding: 3px 4px;
+                              border: 1px solid var(--fg-3); background: var(--bg); color: var(--fg); border-radius: 0; }
+  .cbtn { font-size: 12px; }
+  .cbtn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .cbtn.primary:hover { background: var(--bg); color: var(--blue); }
+  .cbtn:disabled { opacity: .5; cursor: wait; }
+  #bleList { margin: 4px 0 8px; border: 1px solid var(--line); max-height: 150px; overflow-y: auto; }
+  #bleList:empty { display: none; }
+  .bledev { padding: 4px 6px; cursor: pointer; display: flex; justify-content: space-between; gap: 6px; }
+  .bledev:hover { background: var(--bg-hover); }
+  .bledev.sel { background: var(--blue-bg); color: var(--blue); }
+  .bledev .addr { color: var(--fg-3); }
+  #connMsg { margin-top: 4px; color: var(--fg-2); min-height: 1em; }
+  #connMsg.err { color: var(--red); } #connMsg.ok { color: var(--blue); }
+  .chint { color: var(--fg-3); margin: 2px 0 8px; line-height: 1.4; }
+  #info summary { padding: 10px 16px; cursor: pointer; font-weight: 700; font-size: 13px; }
+  #info summary:hover { background: var(--bg-hover); }
+  #infoBody { padding: 0 16px 12px; max-height: 45vh; overflow-y: auto; }
+  #infoBody .igroup { margin: 10px 0 4px; font-size: 11px; color: var(--fg-3); text-transform: uppercase; letter-spacing: .04em; }
+  #infoBody table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  #infoBody td { padding: 3px 0; vertical-align: top; word-break: break-all; }
+  #infoBody td:first-child { color: var(--fg-3); width: 42%; word-break: normal; padding-right: 6px; }
+  .sub { color: var(--fg-2); }
+
+  /* ---------- Panel de detalle ---------- */
+  #detail { border-top: 1px solid var(--line); background: var(--bg); padding: 12px 16px; font-size: 13px; display: none; }
+  #detail h2 { font-size: 15px; margin: 0 0 8px; }
+  #detail table { width: 100%; border-collapse: collapse; }
+  #detail td { padding: 3px 0; } #detail td:first-child { color: var(--fg-3); width: 45%; }
+
+  /* ---------- Pestañas Mapa / Gráfica ---------- */
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  /* Pestañas de hojas, abajo como en Excel */
+  #tabs { display: flex; border-top: 1px solid var(--line); background: var(--bg-2); padding-left: 8px; }
+  #tabs button { font: inherit; font-size: 13px; padding: 7px 18px; cursor: pointer; border: none;
+                 border-right: 1px solid var(--line); background: var(--bg); color: var(--fg-2); }
+  #tabs button { border-left: 1px solid var(--line); margin-top: -1px; }
+  #tabs button.on { background: var(--bg); color: var(--blue); font-weight: 700; border-top: 2px solid var(--blue); }
+  #chartPane { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px;
+               background: var(--bg); min-height: 0; overflow: auto; }
+  .chead { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+  .crange { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--fg-2); }
+  .crange button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+  #chartWrap { position: relative; flex: 1; min-height: 280px; }
+  #chart { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+  #chartTip { position: absolute; display: none; pointer-events: none; font-size: 12px; line-height: 1.5;
+              padding: 6px 8px; background: var(--bg); color: var(--fg); border: 1px solid var(--fg); white-space: nowrap; }
+  .ckey { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 12px; color: var(--fg-2); }
+  .ckey span { display: inline-flex; align-items: center; gap: 6px; }
+  #chartMsg { font-size: 12px; color: var(--red); min-height: 1em; }
+  #chartTable table { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 640px; }
+  #chartTable th, #chartTable td { text-align: right; padding: 3px 10px; border-bottom: 1px solid var(--line); }
+  #chartTable th:first-child, #chartTable td:first-child { text-align: left; }
+  #chartTable th { color: var(--fg-3); font-weight: 400; }
+
+  /* ---------- Mapa (en blanco y negro) ---------- */
+  #map { flex: 1; }
+  .leaflet-container { background: var(--bg-2); }
+  .leaflet-tile-pane { filter: grayscale(1) contrast(1.05); }
+  body.dark .leaflet-tile-pane { filter: grayscale(1) invert(1) brightness(.85) contrast(1.1); }
+  .leaflet-bar { border-radius: 0 !important; border: 1px solid var(--fg) !important; box-shadow: none !important; }
+  .leaflet-bar a { background: var(--bg) !important; color: var(--fg) !important; border-radius: 0 !important;
+                   border-bottom-color: var(--line) !important; font-family: var(--mono); }
+  .leaflet-bar a:hover { background: var(--fg) !important; color: var(--bg) !important; }
+  .leaflet-tooltip { background: var(--bg); color: var(--fg); border: 1px solid var(--fg); border-radius: 0; box-shadow: none; }
+  .leaflet-tooltip-top:before, .leaflet-tooltip-bottom:before,
+  .leaflet-tooltip-left:before, .leaflet-tooltip-right:before { display: none; }
+  .leaflet-control-attribution { background: var(--bg) !important; color: var(--fg-3) !important; }
+  .leaflet-control-attribution a { color: var(--blue) !important; }
+
+  /* Marcadores: azul = este nodo / en vivo, negro = otros, gris = sin datos recientes,
+     rojo punteado = última posición conocida (GPS sin señal) */
+  .lbl { background: var(--fg); color: var(--bg); border-radius: 50%; width: 30px; height: 30px; display: flex;
+         align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
+         border: 2px solid var(--bg); box-shadow: 0 0 0 1px var(--fg); }
+  .lbl.me { background: var(--blue); color: #fff; box-shadow: 0 0 0 1px var(--blue); }
+  .lbl.stale { background: var(--gray-mark); color: #fff; box-shadow: 0 0 0 1px var(--gray-mark); }
+  .lbl.ghost { background: var(--bg); color: var(--red); border: 2px dashed var(--red); box-shadow: none; }
+  .lbl.pc { border-radius: 0; background: var(--bg); color: var(--blue); border: 2px solid var(--blue); box-shadow: none; }
+
+  /* ---------- Ruta hasta el nodo ---------- */
+  #ruta { font-size: 12px; line-height: 1.5; }
+  #ruta.alerta { background: var(--red-bg); }
+  #ruta .rtitle { font-weight: 700; font-size: 13px; }
+  #ruta.alerta .rtitle { color: var(--red); }
+  #rutaDist { font-size: 16px; font-weight: 700; margin: 4px 0; }
+  #rutaMsg.err { color: var(--red); }
+  #rutaModos { margin: 6px 0; }
+  /* =================== Diseño tipo Excel =================== */
+  /* Barra de título */
+  #titlebar { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+              padding: 6px 12px; background: var(--fg); color: var(--bg); font-size: 13px; }
+  #titlebar .sub { color: var(--bg); opacity: .7; }
+  #titlebar .tb-right { display: flex; gap: 6px; }
+  #titlebar .cbtn, #titlebar #themeBtn { background: transparent; color: var(--bg); border-color: var(--bg); }
+  #titlebar .cbtn:hover, #titlebar #themeBtn:hover { background: var(--bg); color: var(--fg); }
+
+  /* Cinta de opciones */
+  #ribbon { background: var(--bg); border-bottom: 1px solid var(--line); }
+  #ribbonTabs { display: flex; gap: 2px; padding: 0 8px; background: var(--bg-2); border-bottom: 1px solid var(--line); }
+  #ribbonTabs button { font: inherit; font-size: 12px; padding: 5px 14px; border: none; cursor: pointer;
+                       background: transparent; color: var(--fg-2); border-bottom: 2px solid transparent; }
+  #ribbonTabs button:hover { color: var(--fg); }
+  #ribbonTabs button.on { color: var(--blue); font-weight: 700; border-bottom-color: var(--blue); background: var(--bg); }
+  .rbody { display: flex; align-items: stretch; min-height: 64px; padding: 6px 8px 0; overflow-x: auto; }
+  .rbody[hidden] { display: none; }
+  #detCtrl { display: flex; }
+  .rgroup { display: flex; flex-direction: column; justify-content: space-between; padding: 0 12px;
+            border-right: 1px solid var(--line); flex-shrink: 0; }
+  .ritems { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 0; font-size: 12px; }
+  .ritems.ctabs { margin: 0; flex-wrap: nowrap; gap: 0; }
+  .ritems.ctabs button { flex: none; padding: 4px 12px; white-space: nowrap; }
+  .ritems input, .ritems select { font: inherit; font-size: 12px; padding: 3px 4px; border: 1px solid var(--fg-3);
+                                  background: var(--bg); color: var(--fg); border-radius: 0; }
+  #detUmbral { width: 64px; } #bleAddr { width: 150px; }
+  .rlabel { font-size: 11px; color: var(--fg-3); text-align: center; padding: 2px 0 4px; }
+  #ribbon #bleList { max-height: 60px; margin: 0 0 2px; font-size: 11px; }
+  #ribbon #connMsg { max-width: 260px; display: inline-block; }
+
+  /* Cuadro de nombre + barra de fórmulas */
+  #fxbar { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); background: var(--bg); font-size: 12px; }
+  #nameBox { width: 170px; padding: 4px 8px; border-right: 1px solid var(--line); font-weight: 700;
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #fxbar .fx { padding: 4px 10px; color: var(--fg-3); font-style: italic; border-right: 1px solid var(--line); }
+  #fxText { padding: 4px 8px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Área de trabajo */
+  #workarea { display: flex; min-height: 0; }
+
+  /* Tarjetas del panel lateral */
+  .card { background: var(--bg); border: 1px solid var(--line); flex-shrink: 0; }
+  .card.cgrow { flex-shrink: 1; min-height: 120px; display: flex; flex-direction: column; }
+  .card.cgrow #list { flex: 1; }
+  .chdr { padding: 4px 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+          color: var(--fg-2); background: var(--bg-2); border-bottom: 1px solid var(--line); }
+  .cbody { padding: 8px 12px; font-size: 12px; }
+  #pingResult { margin-top: 4px; font-size: 12px; }
+  #pingResult:empty, #error:empty { display: none; }
+  #detector .drow { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .card.alarma { border-color: var(--red); }
+  .card.alarma .chdr { background: var(--red); color: #fff; }
+  #ruta.alerta { border-color: var(--red); }
+  #ruta.alerta .chdr { background: var(--red); color: #fff; }
+
+  /* Hojas (Gráfica, Eventos, Dispositivo) */
+  .sheet { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; background: var(--bg);
+           min-height: 0; overflow: auto; }
+  .grid table { border-collapse: collapse; font-size: 12px; min-width: 520px; }
+  .grid th, .grid td { border: 1px solid var(--line); padding: 3px 10px; text-align: right; white-space: nowrap; }
+  .grid th { background: var(--bg-2); color: var(--fg-2); font-weight: 400; }
+  .grid td.izq, .grid th.izq { text-align: left; }
+  .grid td.fila { background: var(--bg-2); color: var(--fg-3); text-align: center; width: 30px; }
+  .grid .igroup { margin: 14px 0 4px; }
+  #infoBody table { max-width: 720px; }
+  #infoBody td:first-child { background: var(--bg-2); color: var(--fg-2); text-align: left; width: 40%; }
+  #infoBody td { text-align: left; }
+
+  /* Barra de estado */
+  #statusbar { display: flex; gap: 0; font-size: 12px; background: var(--bg-2); border-top: 1px solid var(--line); }
+  #statusbar span { padding: 3px 12px; border-right: 1px solid var(--line); white-space: nowrap; }
+  #statusbar span:empty { display: none; }
+  #statusbar .sbright { margin-left: auto; border-right: none; border-left: 1px solid var(--line); }
+  #sbEstado.ok { color: var(--blue); } #sbEstado.err { color: var(--red); font-weight: 700; }
+</style>
+</head>
+<body>
+<!-- ================= Barra de título ================= -->
+<div id="titlebar">
+  <div><b>Rastreador MeshCore</b> <span class="sub" id="tbNode"></span></div>
+  <div class="tb-right">
+    <button id="soundBtn" class="cbtn" title="Sonido en la computadora al hacer ping y con cada alerta">[ Sonido: sí ]</button>
+    <button id="themeBtn" title="Cambiar entre modo claro y oscuro">[ Oscuro ]</button>
+  </div>
+</div>
+
+<!-- ================= Cinta de opciones (como Excel) ================= -->
+<div id="ribbon">
+  <div id="ribbonTabs">
+    <button class="on" data-rib="inicio">Inicio</button>
+    <button data-rib="detector">Detector</button>
+    <button data-rib="ruta">Ruta</button>
+    <button data-rib="conexion">Conexión</button>
+  </div>
+
+  <div class="rbody" data-rib="inicio">
+    <div class="rgroup">
+      <div class="ritems"><button id="pingBtn" title="Envía una petición al nodo y mide cuánto tarda en responder">Ping al nodo</button></div>
+      <div class="rlabel">Comprobar</div>
+    </div>
+    <div class="rgroup">
+      <div class="ritems">
+        <button class="cbtn" data-sheet="mapa">Mapa</button>
+        <button class="cbtn" data-sheet="grafica">Gráfica</button>
+        <button class="cbtn" data-sheet="eventos">Eventos</button>
+        <button class="cbtn" data-sheet="dispositivo">Dispositivo</button>
+      </div>
+      <div class="rlabel">Ver hoja</div>
+    </div>
+    <div class="rgroup">
+      <div class="ritems"><button class="cbtn" data-trazar="1">Ver ruta desde esta PC</button></div>
+      <div class="rlabel">Ruta</div>
+    </div>
+  </div>
+
+  <div class="rbody" data-rib="detector" hidden>
+    <div id="detCtrl" style="display:none">
+      <div class="rgroup">
+        <div class="ritems"><button class="cbtn primary" id="detReset" disabled>Borrar alarma</button></div>
+        <div class="rlabel">Alarma</div>
+      </div>
+      <div class="rgroup">
+        <div class="ritems">
+          <span class="sub" title="Alerta si (pico - reposo) es mayor o igual a este valor">dif. mínima</span>
+          <input id="detUmbral" type="number" step="0.5" min="1" max="55"><span class="sub">g</span>
+          <button class="cbtn" id="detGuardar">Guardar</button>
+        </div>
+        <div class="rlabel">Umbral (pico - reposo)</div>
+      </div>
+    </div>
+    <div class="rgroup">
+      <div class="ritems"><button class="cbtn" id="calibOpen">Calibrar acelerómetro</button><span class="sub" id="calibSummary"></span></div>
+      <div class="rlabel">Calibración</div>
+    </div>
+    <div class="rgroup">
+      <div class="ritems">
+        <button class="cbtn" data-sheet="eventos">Ver eventos</button>
+        <button class="cbtn" id="csvBtn">Exportar CSV</button>
+      </div>
+      <div class="rlabel">Datos</div>
+    </div>
+  </div>
+
+  <div class="rbody" data-rib="ruta" hidden>
+    <div class="rgroup">
+      <div class="ritems ctabs" id="rutaModos">
+        <button data-m="pie">A pie</button><button data-m="auto">En coche</button><button data-m="recta">Línea recta</button>
+      </div>
+      <div class="rlabel">Modo</div>
+    </div>
+    <div class="rgroup">
+      <div class="ritems">
+        <button class="cbtn" data-trazar="1">Ver ruta</button>
+        <a class="cbtn" id="rutaGmaps" target="_blank" rel="noopener">Abrir en Google Maps</a>
+        <button class="cbtn" id="rutaQuitar">Quitar ruta</button>
+      </div>
+      <div class="rlabel">Ruta</div>
+    </div>
+    <div class="rgroup">
+      <div class="ritems">
+        <button class="cbtn" id="rutaCambiar">Cambiar mi ubicación</button>
+        <button class="cbtn" id="olvidarLugares">Olvidar lugares</button>
+        <span class="sub" id="lugaresInfo"></span>
+      </div>
+      <div class="rlabel">Esta computadora (lugares por Wi-Fi)</div>
+    </div>
+  </div>
+
+  <div class="rbody" data-rib="conexion" hidden>
+    <div class="rgroup">
+      <div class="ritems ctabs">
+        <button id="tabUsb" data-mode="serial">USB</button>
+        <button id="tabBle" data-mode="ble">Bluetooth</button>
+      </div>
+      <div class="rlabel">Tipo</div>
+    </div>
+    <div class="rgroup" id="paneUsb">
+      <div class="ritems">
+        <select id="portSel"><option value="">Autodetectar</option></select>
+        <button class="cbtn" id="portScan">Buscar puertos</button>
+        <button class="cbtn primary" id="usbConnect" title="Conecta el nodo con un cable USB de datos">Conectar por USB</button>
+      </div>
+      <div class="rlabel">USB</div>
+    </div>
+    <div class="rgroup" id="paneBle" style="display:none">
+      <div class="ritems">
+        <button class="cbtn" id="bleScan">Buscar nodos</button>
+        <input id="bleAddr" placeholder="AA:BB:CC:DD:EE:FF">
+        <button class="cbtn primary" id="bleConnect"
+                title="El nodo no debe estar conectado por USB ni a la app del celular">Conectar por Bluetooth</button>
+      </div>
+      <div id="bleList"></div>
+      <div class="rlabel">Bluetooth</div>
+    </div>
+    <div class="rgroup">
+      <div class="ritems"><span id="connMsg"></span></div>
+      <div class="rlabel">Mensajes</div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= Cuadro de nombre + barra de fórmulas ================= -->
+<div id="fxbar">
+  <div id="nameBox">--</div>
+  <div class="fx">fx</div>
+  <div id="fxText"></div>
+</div>
+
+<!-- ================= Área de trabajo ================= -->
+<div id="workarea">
+  <div id="sidebar">
+    <section class="card">
+      <div class="chdr">Estado</div>
+      <div class="cbody">
+        <div id="status"><span class="dot" id="dot"></span><span id="statusText">Conectando...</span></div>
+        <div id="error"></div>
+        <div id="pingResult"></div>
+        <div id="pingProof"></div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="chdr">Detector de caídas</div>
+      <div id="detector">
+        <div class="drow"><span class="foco na" id="detFoco"></span><span id="detEstado">--</span></div>
+        <div class="sub" id="detDetalle"></div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="chdr">Ubicación</div>
+      <div id="mine" class="coordbox"></div>
+    </section>
+    <section class="card" id="ruta" style="display:none">
+      <div class="chdr">Ruta</div>
+      <div class="cbody">
+        <div class="rtitle" id="rutaTitulo">Ruta a RABANITO</div>
+        <div id="rutaDist"></div>
+        <div class="sub" id="rutaInfo"></div>
+        <div id="rutaMsg"></div>
+      </div>
+    </section>
+    <section class="card cgrow">
+      <div class="chdr">Nodos</div>
+      <div id="list"></div>
+      <div id="detail"></div>
+    </section>
+  </div>
+
+  <div id="main">
+    <div id="map"></div>
+  <div id="chartPane" style="display:none">
+    <div class="chead">
+      <div><b>Aceleración de RABANITO</b> <span class="sub">|a| en g, en vivo (1 lectura por segundo)</span></div>
+      <div class="crange">ventana:
+        <button class="cbtn on" data-s="60">1 min</button><button class="cbtn" data-s="300">5 min</button><button class="cbtn" data-s="900">15 min</button>
+        <button class="cbtn" id="chartTableBtn">[ Tabla ]</button>
+      </div>
+    </div>
+    <div id="chartWrap"><canvas id="chart"></canvas><div id="chartTip"></div></div>
+    <div class="ckey">
+      <span><svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--blue)" stroke-width="2"/></svg>aceleración</span>
+      <span><svg width="22" height="10"><rect x="1" y="1" width="20" height="8" fill="var(--fg-3)" opacity=".3"/></svg>mín - máx entre lecturas (aquí se ven los golpes)</span>
+      <span><svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="4 3"/></svg>nivel de alerta (reposo + dif. mínima)</span>
+      <span><svg width="14" height="12"><path d="M7 1 L13 11 L1 11 Z" fill="var(--red)"/></svg>movimiento que alertó</span>
+      <span><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="var(--bg)" stroke="var(--blue)" stroke-width="2"/></svg>movimiento que no alertó</span>
+    </div>
+    <div id="chartMsg"></div>
+    <div id="chartTable" style="display:none"></div>
+  </div>
+    <div id="eventsPane" class="sheet" style="display:none">
+      <div class="chead">
+        <div><b>Eventos del detector</b> <span class="sub">caídas y golpes que alertaron (guardados en data/impactos.jsonl)</span></div>
+        <div class="crange"><button class="cbtn" id="csvBtn2">Exportar CSV</button></div>
+      </div>
+      <div id="eventsTable" class="grid"></div>
+    </div>
+    <div id="devicePane" class="sheet" style="display:none">
+      <div class="chead"><div><b>Información del dispositivo</b></div></div>
+      <div id="infoBody" class="grid"><div class="sub">Cargando...</div></div>
+    </div>
+    <div id="tabs">
+      <button class="on" data-tab="mapa">Mapa</button>
+      <button data-tab="grafica">Gráfica</button>
+      <button data-tab="eventos">Eventos</button>
+      <button data-tab="dispositivo">Dispositivo</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= Barra de estado ================= -->
+<div id="statusbar">
+  <span id="sbEstado">Listo</span>
+  <span id="connSummary">--</span>
+  <span id="sbBat"></span>
+  <span id="sbAcel"></span>
+  <span id="sbUmbral"></span>
+  <span class="sbright" id="sbHora"></span>
+</div>
+
+<dialog id="calibDlg">
+  <div class="dhead"><b>Calibrar acelerómetro</b><button class="cbtn" id="calibCerrar">Cerrar</button></div>
+  <div id="calibBody">
+    <div class="sub">Pon el nodo <b>quieto</b> sobre una cara (en una mesa plana) y presiona "Medir cara".
+      Repite hasta llenar las 6 caras; el orden no importa. Luego "Aplicar".</div>
+    <div class="caras" id="calibCaras"></div>
+    <div class="crow">
+      <button class="cbtn primary" id="calibMedir">Medir cara</button>
+      <button class="cbtn" id="calibAplicar" disabled>Aplicar</button>
+      <button class="cbtn" id="calibBorrar">Borrar</button>
+    </div>
+    <div id="calibMsg"></div>
+    <div class="sub" id="calibActual"></div>
+  </div>
+</dialog>
+
+<script>
+const STALE_SECONDS = 15 * 60;   // un nodo no escuchado en 15 min se ve gris
+const POLL_MS = 3000;
+
+const map = L.map('map', { zoomControl: false }).setView([25.66, -100.42], 13);
+L.control.zoom({ zoomInText: '+', zoomOutText: '-' }).addTo(map);  // botones de zoom en ASCII
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+
+const markers = {};       // num -> marcador Leaflet
+let nodes = [];
+let selected = null;
+let fittedOnce = false;
+let serverOffset = 0;     // diferencia de reloj servidor vs navegador
+
+const now = () => Date.now() / 1000 + serverOffset;
+
+function ago(ts) {
+  if (!ts) return 'nunca';
+  const s = Math.max(0, Math.round(now() - ts));
+  if (s < 60) return `hace ${s}s`;
+  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+  return `hace ${Math.round(s / 86400)} d`;
+}
+const fmt = (v, d = 1, unit = '') => (v === null || v === undefined) ? '--' : `${Number(v).toFixed(d)}${unit}`;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const isStale = n => !n.last_heard || now() - n.last_heard > STALE_SECONDS;
+
+function batteryText(b) {
+  if (b === null || b === undefined) return '--';
+  return b > 100 ? 'Enchufado' : `${b}%`;   // Meshtastic reporta 101 cuando está con USB
+}
+function uptimeText(s) {
+  if (!s) return '--';
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+
+// Reloj con segundos: "1d 02:03:04" o "02:03:04"
+function clockText(s) {
+  s = Math.max(0, Math.floor(s));
+  const d = Math.floor(s / 86400), p = v => String(v).padStart(2, '0');
+  const hms = `${p(Math.floor(s % 86400 / 3600))}:${p(Math.floor(s % 3600 / 60))}:${p(s % 60)}`;
+  return d ? `${d}d ${hms}` : hms;
+}
+
+// Elementos que cuentan en vivo cada segundo.
+//   uptime: el nodo reportó `base` segundos en el momento `at` -> sumamos lo transcurrido
+//   desde:  segundos desde el momento `at`
+function liveSpan(kind, base, at) {
+  if (at == null || (kind === 'uptime' && base == null)) return '--';
+  return `<span class="live mono" data-kind="${kind}" data-base="${base ?? 0}" data-at="${at}"></span>`;
+}
+function tick() {
+  for (const el of document.querySelectorAll('.live')) {
+    el.textContent = clockText(Number(el.dataset.base) + now() - Number(el.dataset.at));
+  }
+}
+setInterval(tick, 1000);
+
+const hasPos = n => n.lat != null && n.lon != null;
+
+// Posición a mostrar: la actual si el GPS la tiene; si no, la última guardada en disco.
+//   live = true  -> posición actual
+//   live = false -> "visto por última vez" (el GPS no tiene señal ahora)
+function posOf(n) {
+  // position_rx = cuándo recibimos la posición (confiable); position_time = hora que dice el nodo (a veces vieja)
+  if (hasPos(n)) return { lat: n.lat, lon: n.lon, altitude: n.altitude,
+                          position_time: n.position_rx ?? n.position_time, live: true };
+  if (n.last_pos) return { ...n.last_pos, live: false };
+  return null;
+}
+// Todas las horas se muestran en hora de Monterrey (CST, UTC-6), sin importar el reloj de la PC
+const TZ = 'America/Monterrey';
+
+// Tema claro / oscuro: se recuerda en el navegador
+function applyTheme(dark) {
+  document.body.classList.toggle('dark', dark);
+  document.getElementById('themeBtn').textContent = dark ? '[ Claro ]' : '[ Oscuro ]';
+  localStorage.setItem('tema', dark ? 'oscuro' : 'claro');
+}
+applyTheme(localStorage.getItem('tema') === 'oscuro');
+document.getElementById('themeBtn').addEventListener('click',
+  () => applyTheme(!document.body.classList.contains('dark')));
+const fullTime = ts => ts ? new Date(ts * 1000).toLocaleString('es-MX',
+  { timeZone: TZ, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', second: '2-digit' }) + ' CST' : '--';
+const coordText = n => `${n.lat.toFixed(6)}, ${n.lon.toFixed(6)}`;
+
+// Grados, minutos y segundos: 25°39'36.0"N 100°25'12.0"W
+function dms(v, pos, neg) {
+  const a = Math.abs(v), d = Math.floor(a), m = Math.floor((a - d) * 60), s = ((a - d) * 60 - m) * 60;
+  return `${d}°${String(m).padStart(2, '0')}'${s.toFixed(1).padStart(4, '0')}"${v >= 0 ? pos : neg}`;
+}
+const dmsText = n => `${dms(n.lat, 'N', 'S')} ${dms(n.lon, 'E', 'W')}`;
+const mapsUrl = n => `https://www.google.com/maps?q=${n.lat},${n.lon}`;
+
+function copyCoords(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    const old = btn.textContent; btn.textContent = '¡Copiado!';
+    setTimeout(() => btn.textContent = old, 1200);
+  });
+}
+
+function coordsBlock(n) {
+  return `<div class="coords">${coordText(n)}</div>
+    <div class="sub">${dmsText(n)}</div>
+    <div class="sub">Altitud ${fmt(n.altitude, 0, ' m')} | posición ${ago(n.position_time)} (${fullTime(n.position_time)})</div>
+    <div class="actions">
+      <button data-copy="${coordText(n)}">Copiar</button>
+      <a href="${mapsUrl(n)}" target="_blank" rel="noopener">Google Maps</a>
+    </div>`;
+}
+
+function renderMine(status) {
+  const el = document.getElementById('mine');
+  // Si el servidor arrancó sin el nodo conectado, aún no sabe cuál es "este nodo":
+  // con un solo nodo guardado, se muestra ese.
+  const me = nodes.find(n => n.num === status.my_node) || (nodes.length === 1 ? nodes[0] : null);
+  if (!me) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  const p = posOf(me);
+  el.innerHTML = '' +
+    (p && p.live ? coordsBlock(p) + (me.position_rx
+        ? `<div class="sub">La posición se actualiza sola mientras el GPS tenga señal.</div>`
+        : `<div class="waiting">[!] Posición guardada en el nodo. Aún no llega una nueva desde que se conectó (¿GPS sin señal?).</div>`)
+     : p ? `<div class="lastseen-tag">[!] Visto por última vez ${ago(p.position_time)}</div>
+            ${coordsBlock(p)}
+            <div class="waiting">[!] GPS sin señal ahora: el mapa muestra dónde estuvo por última vez.</div>`
+     : `<div class="waiting">[...] Esperando señal GPS</div>
+        <div class="sub">El nodo aún no reporta ubicación. Ponlo con vista al cielo.</div>`) +
+    `<div class="timers">
+       <div><span>Encendido (uptime)</span>${liveSpan('uptime', me.uptime, me.uptime_at)}</div>
+       <div><span>Conectado a la PC</span>${status.connected ? liveSpan('since', 0, status.connected_since) : '--'}</div>
+     </div>`;
+  tick();
+}
+
+// Información fija del dispositivo: se pide una vez por conexión
+let infoKey;  // undefined al inicio para que el primer render siempre actualice el panel
+async function loadInfo(status) {
+  const key = status.connected ? `${status.my_node}-${status.connected_since}` : null;
+  if (key === infoKey) return;
+  infoKey = key;
+  const body = document.getElementById('infoBody');
+  if (!key) { body.innerHTML = '<div class="sub">Sin conexión con el nodo.</div>'; return; }
+  try {
+    const i = await (await fetch('/api/info')).json();
+    if (!i.ok) { body.innerHTML = `<div class="sub">${esc(i.error)}</div>`; infoKey = null; return; }
+    const yn = v => v == null ? '--' : v ? 'Sí' : 'No';
+    const groups = i.groups || [
+      ['Identificación', [
+        ['Nombre', `${i.long_name} (${i.short_name})`],
+        ['ID de nodo', i.node_id], ['Número de nodo', i.node_num],
+        ['ID único del chip (serie)', i.device_id, true],
+        ['Dirección MAC', i.mac, true],
+        ['Hardware', i.hw_model],
+      ]],
+      ['Firmware', [
+        ['Versión', i.firmware], ['Edición', i.firmware_edition], ['Compilación', i.pio_env],
+        ['Reinicios', i.reboot_count], ['Rol', i.role],
+      ]],
+      ['GPS', [
+        ['Modo GPS', i.gps_mode],
+        ['Lectura GPS cada', i.gps_update_interval != null ? `${i.gps_update_interval} s` : null],
+        ['Envía posición cada', i.position_broadcast_secs != null ? `${i.position_broadcast_secs} s` : null],
+        ['Bluetooth', i.bluetooth_mode],
+      ]],
+      ['Radio LoRa', [
+        ['Región', i.region], ['Preset', i.modem_preset], ['Canal principal', i.channel],
+        ['Saltos máximos', i.hop_limit], ['Potencia TX', i.tx_power ? `${i.tx_power} dBm` : 'Predeterminada'],
+        ['Transmisión activa', yn(i.tx_enabled)],
+      ]],
+      ['Otros', [
+        ['Bluetooth', yn(i.has_bluetooth)], ['WiFi', yn(i.has_wifi)],
+        ['Nodos conocidos', i.nodedb_count], ['Puerto', i.port],
+        ['Llave pública', i.public_key, true],
+      ]],
+    ];
+    body.innerHTML = groups.map(([g, rows]) => `<div class="igroup">${g}</div><table>${
+      rows.map(([k, v, copy]) => `<tr><td>${k}</td><td class="mono">${esc(v ?? '--')}${
+        copy && v ? ` <button class="mini" data-copy="${esc(v)}">Copiar</button>` : ''}</td></tr>`).join('')
+    }</table>`).join('');
+  } catch (e) {
+    body.innerHTML = '<div class="sub">No se pudo leer la información.</div>';
+    infoKey = null;
+  }
+}
+
+function icon(n, isMe, ghost = false) {
+  const cls = ghost ? 'ghost' : isMe ? 'me' : isStale(n) ? 'stale' : '';
+  return L.divIcon({ className: '', html: `<div class="lbl ${cls}">${esc(n.short_name)}</div>`,
+                     iconSize: [30, 30], iconAnchor: [15, 15] });
+}
+
+function render(status) {
+  // Estado de conexión
+  const dot = document.getElementById('dot');
+  dot.className = 'dot ' + (status.connected ? 'ok' : 'err');
+  const modo = { demo: ' (modo demo)', ble: ' por Bluetooth', serial: ' por USB' }[status.mode] || '';
+  document.getElementById('statusText').textContent =
+    (status.connected ? `Conectado${modo}` : 'Desconectado') + ` | ${nodes.length} nodos`;
+  document.getElementById('error').textContent = status.error || '';
+
+  // Ordenar: mi nodo primero, luego por último escuchado
+  nodes.sort((a, b) => (b.num === status.my_node) - (a.num === status.my_node)
+                       || (b.last_heard || 0) - (a.last_heard || 0));
+
+  // Lista lateral
+  document.getElementById('list').innerHTML = nodes.map(n => {
+    const me = n.num === status.my_node;
+    return `<div class="node ${n.num === selected ? 'selected' : ''} ${isStale(n) ? 'stale' : ''}" data-num="${n.num}">
+      <div class="row1">
+        <span class="name">${esc(n.long_name)}${me ? '<span class="badge">este nodo</span>' + focoHtml(n.impact) : ''}${n.offline ? '<span class="badge">sin conexión</span>' : ''}</span>
+        <span class="ago">${ago(n.last_heard)}</span>
+      </div>
+      <div class="meta">
+        <span>bat: ${batteryText(n.battery)}</span>
+        <span>SNR ${fmt(n.snr, 1)}</span>
+        <span>${n.hops_away != null ? n.hops_away + ' saltos' : ''}</span>
+        ${(() => { const p = posOf(n);
+            return `<span class="${p ? 'mono' : ''}">pos: ${p ? coordText(p) + (p.live ? '' : ` (última, ${ago(p.position_time)})`) : 'sin GPS'}</span>`; })()}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Marcadores en el mapa
+  const seen = new Set();
+  for (const n of nodes) {
+    const p = posOf(n);
+    if (!p) continue;
+    seen.add(n.num);
+    const me = n.num === status.my_node;
+    if (!markers[n.num]) {
+      markers[n.num] = L.marker([p.lat, p.lon]).addTo(map).on('click', () => select(n.num, false));
+    }
+    const tip = p.live
+      ? `<b>${esc(n.long_name)}</b> | ${ago(n.last_heard)}<br><span class="mono">${coordText(p)}</span>`
+      : `<b>${esc(n.long_name)}</b> | <i>visto por última vez</i><br>${fullTime(p.position_time)} (${ago(p.position_time)})<br><span class="mono">${coordText(p)}</span>`;
+    markers[n.num].setLatLng([p.lat, p.lon]).setIcon(icon(n, me, !p.live))
+      .setZIndexOffset(p.live ? 1000 : 0).bindTooltip(tip);
+  }
+  for (const num in markers) {
+    if (!seen.has(Number(num))) { map.removeLayer(markers[num]); delete markers[num]; }
+  }
+
+  // Ajustar el mapa la primera vez que hay posiciones
+  if (!fittedOnce && seen.size) {
+    const pts = nodes.map(posOf).filter(Boolean).map(p => [p.lat, p.lon]);
+    map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
+    fittedOnce = true;
+  }
+
+  // Mensaje del panel de conexión: pasar de "Conectando..." a "Conectado" cuando ya conectó
+  const cm = document.getElementById('connMsg');
+  if (cm && cm.textContent.startsWith('Conectando') && status.connected) {
+    cm.textContent = 'Conectado.'; cm.className = 'ok';
+  }
+  renderDetector(status);
+  renderBars(status);
+  renderMine(status);
+  autoRuta();
+  loadInfo(status);
+  renderDetail();
+}
+
+function renderDetail() {
+  const el = document.getElementById('detail');
+  const n = nodes.find(x => x.num === selected);
+  if (!n) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  const dp = posOf(n);
+  const rows = [
+    ['ID', n.id], ['Hardware', n.hw_model],
+    ['Último escuchado', ago(n.last_heard)],
+    ['Posición', dp ? (dp.live ? 'Actual' : 'Última conocida (GPS sin señal)') : 'Sin GPS'],
+    ['Posición tomada', dp ? `${ago(dp.position_time)} | ${fullTime(dp.position_time)}` : '--'],
+    ['Batería', batteryText(n.battery)], ['Voltaje', fmt(n.voltage, 2, ' V')],
+    ['Uso de canal', fmt(n.channel_util, 1, ' %')], ['Aire TX', fmt(n.air_util_tx, 2, ' %')],
+    ['SNR', fmt(n.snr, 1, ' dB')], ['Saltos', n.hops_away ?? '--'],
+    ['Encendido', { html: liveSpan('uptime', n.uptime, n.uptime_at) }],
+    ...(n.temperature != null ? [['Temperatura', fmt(n.temperature, 1, ' °C')]] : []),
+    ...(n.lux != null ? [['Luz', fmt(n.lux, 0, ' lux')]] : []),
+  ];
+  el.innerHTML = `<h2>${esc(n.long_name)}</h2>${dp ? `<div class="coordbox" style="padding-bottom:10px">${coordsBlock(dp)}</div>` : ''}<table>${
+    rows.map(([k, v]) => `<tr><td>${k}</td><td>${v?.html ?? esc(v ?? '--')}</td></tr>`).join('')}</table>`;
+  tick();
+}
+
+function select(num, pan = true) {
+  selected = selected === num ? null : num;
+  const n = nodes.find(x => x.num === num);
+  const sp = n && posOf(n);
+  if (pan && selected && sp) map.setView([sp.lat, sp.lon], Math.max(map.getZoom(), 15));
+  render(lastStatus);
+}
+
+document.addEventListener('click', e => {
+  const btn = e.target.closest('[data-copy]');
+  if (btn) copyCoords(btn.dataset.copy, btn);
+});
+
+document.getElementById('list').addEventListener('click', e => {
+  const item = e.target.closest('.node');
+  if (item) select(Number(item.dataset.num));
+});
+
+let lastStatus = {};
+async function poll() {
+  try {
+    const r = await fetch('/api/nodes');
+    const data = await r.json();
+    serverOffset = data.server_time - Date.now() / 1000;
+    nodes = data.nodes;
+    lastStatus = data.status;
+  } catch (e) {
+    lastStatus = { connected: false, error: 'No hay respuesta del servidor (¿está corriendo server.py?)' };
+  }
+  render(lastStatus);
+}
+// ---------------------------------------------------------------------------
+// Sonido del ping (en la computadora; el firmware no deja sonar el buzzer del nodo)
+//   respondió  -> dos tonos agudos
+//   falló      -> un tono grave
+// ---------------------------------------------------------------------------
+let audioCtx = null;
+let soundOn = localStorage.getItem('sonido') !== 'no';
+function updateSoundBtn() { document.getElementById('soundBtn').textContent = soundOn ? '[ Sonido: sí ]' : '[ Sonido: no ]'; }
+document.getElementById('soundBtn').addEventListener('click', () => {
+  soundOn = !soundOn;
+  localStorage.setItem('sonido', soundOn ? 'si' : 'no');
+  updateSoundBtn();
+  if (soundOn) beep(true);
+});
+updateSoundBtn();
+
+// ---------------------------------------------------------------------------
+// Detector de caídas y golpes (acelerómetro del nodo, firmware v1.18.0-rabanito)
+// ---------------------------------------------------------------------------
+function focoHtml(imp) {
+  const cls = !imp || !imp.available || !imp.sensor_ok ? 'na' : imp.active ? 'on' : '';
+  const tip = !imp ? 'Detector: sin datos' : !imp.available ? 'Detector no disponible en este firmware'
+            : imp.active ? `${imp.type === 'caida' ? 'CAÍDA' : 'GOLPE'} detectado` : 'Sin caídas ni golpes';
+  return `<span class="foco ${cls}" title="${tip}"></span>`;
+}
+
+let lastImpactCount = null;
+function renderDetector(status) {
+  const me = nodes.find(n => n.num === status.my_node);
+  const imp = me && !me.offline ? me.impact : null;
+  const box = document.getElementById('detector');
+  const foco = document.getElementById('detFoco'), est = document.getElementById('detEstado');
+  const det = document.getElementById('detDetalle'), ctrl = document.getElementById('detCtrl');
+  const umbral = document.getElementById('detUmbral');
+  foco.className = 'foco ' + (!imp || !imp.available || !imp.sensor_ok ? 'na' : imp.active ? 'on' : '');
+  box.classList.toggle('alarma', !!(imp && imp.active));
+  box.closest('.card').classList.toggle('alarma', !!(imp && imp.active));
+  if (!imp) {
+    est.textContent = status.connected ? '(esperando datos)' : '(sin conexión)';
+    det.textContent = ''; ctrl.style.display = 'none'; return;
+  }
+  if (!imp.available) {
+    est.textContent = 'no disponible';
+    det.textContent = 'El firmware del nodo no tiene detector. Flashea MeshCore v1.18.0-rabanito.';
+    ctrl.style.display = 'none'; return;
+  }
+  if (!imp.sensor_ok) {
+    est.textContent = 'sensor no encontrado';
+    det.textContent = 'El firmware tiene detector, pero no respondió el acelerómetro (QMA6100P).';
+    ctrl.style.display = 'none'; return;
+  }
+  const calc = (p, r, d) => r != null ? `pico ${fmt(p, 2)} - reposo ${fmt(r, 2)} = ${fmt(d, 2, ' g')}` : `pico ${fmt(p, 2, ' g')}`;
+  const evento = imp.type ? `${imp.type === 'caida' ? 'Caída' : 'Golpe'} | ${fullTime(imp.time)} | ${calc(imp.peak_g, imp.rest_g, imp.diff_g)}` : '';
+  const lm = imp.last_move;
+  const ultimo = lm ? `<br>Último movimiento (${ago(lm.time)}): ${calc(lm.peak_g, lm.rest_g, lm.diff_g)}` +
+    (imp.threshold_g ? (lm.diff_g >= imp.threshold_g ? ' <b>[alertó]</b>' : ' [no alertó]') : '') : '';
+  est.textContent = imp.active ? (imp.type === 'caida' ? 'CAÍDA DETECTADA' : 'GOLPE DETECTADO') : 'sin eventos';
+  det.innerHTML = (imp.active ? esc(evento)
+                   : imp.count ? `Último: ${esc(evento)}` : 'No ha detectado caídas ni golpes.') +
+    ultimo +
+    `<br>Aceleración ahora: <span class="mono">${fmt(imp.accel_g, 2, ' g')}</span> | eventos desde que encendió: ${imp.count}`;
+  ctrl.style.display = '';
+  document.getElementById('detReset').disabled = !imp.active;
+  if (document.activeElement !== umbral && imp.threshold_g) umbral.value = imp.threshold_g.toFixed(1);
+  // Alarma sonora con cada evento nuevo
+  if (lastImpactCount !== null && imp.active && imp.count > lastImpactCount) {
+    alarm();
+    rutaAuto = true;
+    trazarRuta(`${imp.type === 'caida' ? 'CAÍDA detectada' : 'GOLPE detectado'} ${fullTime(imp.time)}`);
+  }
+  lastImpactCount = imp.count;
+}
+
+async function detPost(url, body) {
+  const r = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                     body: JSON.stringify(body || {}) })).json();
+  if (!r.ok) alert(r.error || 'No se pudo');
+  poll();
+}
+document.getElementById('detReset').onclick = () => detPost('/api/impacto/reset');
+document.getElementById('detGuardar').onclick = () =>
+  detPost('/api/impacto/umbral', { g: parseFloat(document.getElementById('detUmbral').value) });
+
+// ---------------------------------------------------------------------------
+// Calibración del acelerómetro (6 caras)
+// ---------------------------------------------------------------------------
+const CARAS = ['x+', 'x-', 'y+', 'y-', 'z+', 'z-'];
+function calibMsg(t, cls = '') { const m = document.getElementById('calibMsg'); m.textContent = t; m.className = cls; }
+function renderCalib(r) {
+  const caras = r.caras || {};
+  document.getElementById('calibCaras').innerHTML = CARAS.map(c =>
+    `<span class="${caras[c] ? 'ok' : ''}" title="${caras[c] ? caras[c].map(v => v.toFixed(3)).join(' / ') : 'falta'}">${c.toUpperCase()}</span>`).join('');
+  document.getElementById('calibAplicar').disabled = CARAS.some(c => !caras[c]);
+  const a = r.actual;
+  document.getElementById('calibSummary').textContent = a ? '(calibrado)' : '(sin calibrar)';
+  document.getElementById('calibActual').innerHTML = a
+    ? `Calibración actual (${fullTime(a.fecha)}):<br>offset x/y/z: ${a.offset.map(v => v.toFixed(3)).join(' / ')} g` +
+      `<br>ganancia x/y/z: ${a.ganancia.map(v => v.toFixed(3)).join(' / ')}`
+    : 'Sin calibración: se usan los valores de fábrica del sensor.';
+}
+async function loadCalib() {
+  try { renderCalib(await (await fetch('/api/calibracion')).json()); } catch (e) {}
+}
+document.getElementById('calibOpen').onclick = () => { document.getElementById('calibDlg').showModal(); loadCalib(); };
+document.getElementById('calibCerrar').onclick = () => document.getElementById('calibDlg').close();
+loadCalib();   // para mostrar "(calibrado)" junto al botón desde el inicio
+document.getElementById('calibMedir').onclick = async () => {
+  const b = document.getElementById('calibMedir');
+  b.disabled = true; calibMsg('Midiendo (no muevas el nodo)...');
+  try {
+    const r = await (await fetch('/api/calibracion/medir', { method: 'POST' })).json();
+    if (!r.ok) calibMsg(r.error, 'err');
+    else {
+      calibMsg(`Cara ${r.cara.toUpperCase()} medida: x=${r.ejes[0].toFixed(3)} y=${r.ejes[1].toFixed(3)} z=${r.ejes[2].toFixed(3)} g` +
+               (r.faltan.length ? `. Faltan: ${r.faltan.map(c => c.toUpperCase()).join(', ')}` : '. Listo, presiona Aplicar.'), 'ok');
+      renderCalib({ ...r, actual: (await (await fetch('/api/calibracion')).json()).actual });
+    }
+  } catch (e) { calibMsg('Sin respuesta del servidor.', 'err'); }
+  b.disabled = false;
+};
+document.getElementById('calibAplicar').onclick = async () => {
+  const r = await (await fetch('/api/calibracion/aplicar', { method: 'POST' })).json();
+  calibMsg(r.ok ? 'Calibración aplicada y guardada. En reposo debería marcar ~1.00 g.' : r.error, r.ok ? 'ok' : 'err');
+  loadCalib();
+};
+document.getElementById('calibBorrar').onclick = async () => {
+  await fetch('/api/calibracion/borrar', { method: 'POST' });
+  calibMsg('Calibración borrada.', 'ok');
+  loadCalib();
+};
+
+// ---------------------------------------------------------------------------
+// Ruta desde esta computadora hasta la última ubicación GPS del nodo
+// ---------------------------------------------------------------------------
+let miPos = JSON.parse(localStorage.getItem('miUbicacion') || 'null');   // {lat, lon, fuente}
+let rutaModo = localStorage.getItem('rutaModo') || 'pie';
+let rutaLayer = null, pcMarker = null, rutaMotivo = null;
+let rutaAuto = true;          // trazar y actualizar la ruta sola (se apaga con "Quitar ruta")
+let rutaDestino = null;       // [lat, lon] del nodo en la última ruta trazada
+let rutaUltima = 0;           // cuándo se trazó (ms)
+let rutaOcupada = false;      // evita trazar dos veces a la vez
+
+function rutaMsg(t, cls = '') { const m = document.getElementById('rutaMsg'); m.textContent = t; m.className = cls; }
+function mostrarMapa() { document.querySelector('#tabs button[data-tab=mapa]').click(); }
+function marcarModo() {
+  document.querySelectorAll('#rutaModos button').forEach(b => b.classList.toggle('on', b.dataset.m === rutaModo));
+}
+
+function guardarMiPos(lat, lon, fuente) {
+  miPos = { lat, lon, fuente };
+  localStorage.setItem('miUbicacion', JSON.stringify(miPos));
+  return miPos;
+}
+
+// ---- Ubicación de esta computadora: "recordar lugares" por Wi-Fi (en el servidor, todo local) ----
+let lugaresInfo = null;
+
+async function fijarLugar(lat, lon) {
+  try {
+    return await (await fetch('/api/mi_ubicacion/fijar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                         body: JSON.stringify({ lat, lon }) })).json();
+  } catch (e) { return null; }
+}
+
+// Pide al usuario que haga clic en el mapa donde está la computadora, y recuerda ese lugar por Wi-Fi
+function pedirClicMapa(texto) {
+  mostrarMapa();
+  rutaMsg(texto || 'No reconozco este lugar por Wi-Fi: haz clic en el mapa donde está esta computadora.', 'err');
+  map.getContainer().style.cursor = 'crosshair';
+  return new Promise(res => map.once('click', async e => {
+    map.getContainer().style.cursor = '';
+    rutaMsg('Guardando el lugar...');
+    const f = await fijarLugar(e.latlng.lat, e.latlng.lng);
+    rutaMsg('');
+    actualizarLugaresInfo();
+    res(guardarMiPos(e.latlng.lat, e.latlng.lng, f && f.ok
+      ? `fijada en el mapa; lugar ${f.lugar} guardado con ${f.redes} redes Wi-Fi`
+      : 'fijada en el mapa (no se pudo guardar la huella Wi-Fi)'));
+  }));
+}
+
+// Pregunta al servidor si reconoce el lugar por las redes Wi-Fi que se ven ahora
+async function ubicarPorWifi() {
+  let r = null;
+  try { r = await (await fetch('/api/mi_ubicacion')).json(); } catch (e) { return { pos: null, r: null }; }
+  lugaresInfo = r;
+  pintarLugaresInfo();
+  if (!r.ok) return { pos: null, r };
+  const pos = guardarMiPos(r.lat, r.lon,
+    `Wi-Fi: lugar ${r.lugar} reconocido (coincidencia ${Math.round(r.similitud * 100)}%, ${r.comunes} redes)`);
+  return { pos, r };
+}
+
+// 1) lugar reconocido por Wi-Fi, 2) la ubicación fijada antes, 3) clic en el mapa (y se recuerda)
+async function obtenerMiUbicacion() {
+  const { pos, r } = await ubicarPorWifi();
+  if (pos) return pos;
+  if (r && r.motivo === 'sin_lugares' && miPos) {        // primera vez: la ubicación fijada antes es el lugar 1
+    const f = await fijarLugar(miPos.lat, miPos.lon);
+    actualizarLugaresInfo();
+    return guardarMiPos(miPos.lat, miPos.lon, f && f.ok ? `fijada en el mapa; lugar ${f.lugar} guardado con ${f.redes} redes Wi-Fi`
+                                                        : miPos.fuente);
+  }
+  if ((!r || r.motivo === 'sin_wifi') && miPos) return miPos;   // sin Wi-Fi: la última ubicación conocida
+  return pedirClicMapa();
+}
+
+function pintarLugaresInfo() {
+  const el = document.getElementById('lugaresInfo');
+  if (!el || !lugaresInfo) return;
+  el.textContent = `${lugaresInfo.lugares} lugar(es) guardado(s)` +
+    (lugaresInfo.ok ? `, aquí: lugar ${lugaresInfo.lugar}` : lugaresInfo.motivo === 'lugar_desconocido' ? ', aquí: desconocido' : '');
+}
+async function actualizarLugaresInfo() {
+  try { lugaresInfo = await (await fetch('/api/mi_ubicacion')).json(); pintarLugaresInfo(); } catch (e) {}
+}
+
+// Cada minuto: ¿la computadora cambió de lugar? Si sí, rehacer la ruta desde el nuevo lugar
+let rutaOrigen = null;
+setInterval(async () => {
+  const { pos, r } = await ubicarPorWifi();
+  if (pos && rutaLayer && rutaOrigen && (Math.abs(pos.lat - rutaOrigen[0]) > 5e-4 || Math.abs(pos.lon - rutaOrigen[1]) > 5e-4)) {
+    trazarRuta(undefined, { ajustar: true, pestana: false });
+  } else if (!pos && r && r.motivo === 'lugar_desconocido' && rutaLayer) {
+    rutaMsg('La computadora parece estar en otro lugar (Wi-Fi distinto). Usa "Cambiar mi ubicación" para fijarlo.', 'err');
+  }
+}, 60000);
+
+function fmtDist(m) { return m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 0 : 1)} km` : `${m} m`; }
+function fmtDur(s) { if (!s) return ''; const m = Math.round(s / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; }
+
+// opts.ajustar: encuadrar el mapa en la ruta; opts.pestana: cambiar a la pestaña Mapa
+async function trazarRuta(motivo, opts = { ajustar: true, pestana: true }) {
+  if (rutaOcupada) return;
+  rutaOcupada = true;
+  try { await trazarRutaAhora(motivo, opts); } finally { rutaOcupada = false; }
+}
+
+// Se llama en cada actualización: traza la ruta en cuanto hay posición y la rehace si el nodo se movió
+function autoRuta() {
+  if (!rutaAuto || rutaOcupada) return;
+  const me = nodes.find(n => n.num === lastStatus.my_node) || (nodes.length === 1 ? nodes[0] : null);
+  const p = me && posOf(me);
+  if (!p) return;
+  const movio = !rutaDestino || Math.abs(p.lat - rutaDestino[0]) > 1e-4 || Math.abs(p.lon - rutaDestino[1]) > 1e-4;
+  if (!rutaLayer) trazarRuta(undefined, { ajustar: true, pestana: false });
+  else if (movio && Date.now() - rutaUltima > 30000) trazarRuta(undefined, { ajustar: false, pestana: false });
+}
+
+async function trazarRutaAhora(motivo, opts) {
+  const me = nodes.find(n => n.num === lastStatus.my_node) || (nodes.length === 1 ? nodes[0] : null);
+  const p = me && posOf(me);
+  const panel = document.getElementById('ruta');
+  panel.style.display = 'block';
+  if (motivo !== undefined) rutaMotivo = motivo;
+  panel.classList.toggle('alerta', !!rutaMotivo);
+  document.getElementById('rutaTitulo').textContent =
+    (rutaMotivo ? `[!] ${rutaMotivo}. ` : '') + `Ruta a ${me ? me.long_name : 'el nodo'}`;
+  marcarModo();
+  if (!p) { rutaMsg('El nodo no tiene ninguna ubicación GPS guardada todavía.', 'err'); return; }
+  if (opts.pestana) mostrarMapa();
+  const yo = await obtenerMiUbicacion();
+  rutaMsg(rutaModo === 'recta' ? '' : 'Calculando ruta...');
+  let r;
+  try {
+    r = await (await fetch(`/api/ruta?desde=${yo.lat},${yo.lon}&hasta=${p.lat},${p.lon}&modo=${rutaModo}`)).json();
+  } catch (e) { rutaMsg('Sin respuesta del servidor.', 'err'); return; }
+  if (!r.ok) { rutaMsg(r.error, 'err'); return; }
+  if (rutaLayer) map.removeLayer(rutaLayer);
+  if (pcMarker) map.removeLayer(pcMarker);
+  rutaLayer = L.polyline(r.coords, { color: cvar('--red'), weight: 4, opacity: .85,
+                                     dashArray: r.modo === 'recta' ? '8 8' : null }).addTo(map);
+  pcMarker = L.marker([yo.lat, yo.lon], { icon: L.divIcon({ className: '', html: '<div class="lbl pc">PC</div>',
+                                                             iconSize: [30, 30], iconAnchor: [15, 15] }) })
+    .addTo(map).bindTooltip(`Esta computadora<br>${yo.lat.toFixed(5)}, ${yo.lon.toFixed(5)}`);
+  if (opts.ajustar) map.fitBounds(rutaLayer.getBounds(), { padding: [60, 60], maxZoom: 17 });
+  rutaDestino = [p.lat, p.lon];
+  rutaOrigen = [yo.lat, yo.lon];
+  rutaUltima = Date.now();
+  const modoTxt = { pie: 'a pie', auto: 'en coche', recta: 'en línea recta' }[r.modo];
+  document.getElementById('rutaDist').textContent =
+    `${fmtDist(r.distancia_m)} ${modoTxt}` + (r.duracion_s ? ` | ~${fmtDur(r.duracion_s)}` : '');
+  document.getElementById('rutaInfo').innerHTML =
+    `Desde: esta computadora (${esc(yo.fuente)})<br>Hasta: ${esc(me.long_name)} ` +
+    `${p.live ? '(posición actual)' : `(última posición, ${ago(p.position_time)})`}<br>` +
+    `<span class="mono">${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}</span>`;
+  rutaMsg(r.aviso || '', r.aviso ? 'err' : '');
+  const tm = r.modo === 'auto' ? 'driving' : 'walking';
+  document.getElementById('rutaGmaps').href =
+    `https://www.google.com/maps/dir/?api=1&origin=${yo.lat},${yo.lon}&destination=${p.lat},${p.lon}&travelmode=${tm}`;
+}
+
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-trazar]')) { rutaAuto = true; trazarRuta(null); }
+});
+document.querySelectorAll('#rutaModos button').forEach(b => b.onclick = () => {
+  rutaModo = b.dataset.m; localStorage.setItem('rutaModo', rutaModo); trazarRuta(undefined, { ajustar: true, pestana: false });
+});
+document.getElementById('rutaQuitar').onclick = () => {
+  if (rutaLayer) map.removeLayer(rutaLayer);
+  if (pcMarker) map.removeLayer(pcMarker);
+  rutaLayer = pcMarker = rutaMotivo = rutaDestino = null;
+  rutaAuto = false;   // no volver a trazarla sola hasta la próxima alerta o el botón
+  document.getElementById('ruta').style.display = 'none';
+};
+document.getElementById('rutaCambiar').onclick = async () => {
+  await pedirClicMapa('Haz clic en el mapa donde está esta computadora (se recordará por Wi-Fi).');
+  trazarRuta();
+};
+document.getElementById('olvidarLugares').onclick = async () => {
+  if (!confirm('¿Olvidar todos los lugares guardados por Wi-Fi?')) return;
+  await fetch('/api/mi_ubicacion/olvidar', { method: 'POST' });
+  actualizarLugaresInfo();
+};
+actualizarLugaresInfo();
+
+// ---------------------------------------------------------------------------
+// Cuadro de nombre, barra de fórmulas y barra de estado (como en Excel)
+// ---------------------------------------------------------------------------
+function renderBars(status) {
+  const me = nodes.find(n => n.num === status.my_node) || (nodes.length === 1 ? nodes[0] : null);
+  const imp = me && !me.offline ? me.impact : null;
+  const p = me && posOf(me);
+  document.getElementById('nameBox').textContent = me ? me.long_name : '--';
+  document.getElementById('tbNode').textContent = me ? `- ${me.long_name}` : '';
+  const partes = [];
+  partes.push(status.connected ? 'conectado' : 'desconectado');
+  if (p) partes.push(`${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} ${p.live ? '(GPS actual)' : `(visto ${ago(p.position_time)})`}`);
+  else partes.push('sin ubicación GPS');
+  if (imp && imp.available) {
+    partes.push(imp.active ? `ALARMA: ${imp.type === 'caida' ? 'caída' : 'golpe'} ${fmt(imp.diff_g, 2, ' g')}` : 'detector: sin alarma');
+  }
+  document.getElementById('fxText').textContent = '= ' + partes.join('  |  ');
+  const est = document.getElementById('sbEstado');
+  est.textContent = imp && imp.active ? 'ALARMA' : status.connected ? 'Listo' : 'Desconectado';
+  est.className = imp && imp.active ? 'err' : status.connected ? 'ok' : 'err';
+  document.getElementById('sbBat').textContent = me && me.battery != null ? `Batería ${batteryText(me.battery)}` : '';
+  document.getElementById('sbAcel').textContent = imp && imp.accel_g != null ? `Aceleración ${fmt(imp.accel_g, 2, ' g')}` : '';
+  document.getElementById('sbUmbral').textContent = imp && imp.threshold_g ? `Dif. mínima ${fmt(imp.threshold_g, 1, ' g')}` : '';
+  document.getElementById('sbHora').textContent = `Actualizado ${new Date().toLocaleTimeString('es-MX', { timeZone: TZ })} CST`;
+}
+
+function alarm() {
+  if (!soundOn) return;
+  beep(false);
+  setTimeout(() => beep(false), 450);
+  setTimeout(() => beep(false), 900);
+}
+
+function beep(ok) {
+  if (!soundOn) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const notes = ok ? [[880, 0], [1320, 0.12]] : [[220, 0]];
+    for (const [freq, at] of notes) {
+      const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+      const t = audioCtx.currentTime + at, len = ok ? 0.1 : 0.35;
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.08, t);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + len);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + len);
+    }
+  } catch (e) { /* sin audio disponible */ }
+}
+
+async function ping() {
+  const btn = document.getElementById('pingBtn');
+  const out = document.getElementById('pingResult');
+  const proof = document.getElementById('pingProof');
+  btn.disabled = true;
+  out.className = '';
+  out.textContent = 'Esperando respuesta...';
+  const hora = new Date().toLocaleTimeString('es-MX', { timeZone: TZ }) + ' CST';
+  try {
+    const r = await (await fetch('/api/ping', { method: 'POST' })).json();
+    const hex = v => v == null ? '--' : '#' + Number(v).toString(16).padStart(8, '0');
+    const mark = ok => ok ? '<span class="ok">[OK]</span>' : '<span class="err">[X]</span>';
+    beep(r.ok);
+    if (r.ok) {
+      out.className = 'ok';
+      out.textContent = `[OK] Respondió en ${r.ms} ms (${hora})`;
+      proof.innerHTML =
+        (r.sent_id != null ? `<div>Paquete enviado: <span class="mono">${hex(r.sent_id)}</span></div>
+          <div>Respuesta al paquete: <span class="mono">${hex(r.request_id)}</span> ${mark(r.id_match)}</div>` : '') +
+        `<div>Respondió el nodo: <span class="mono">${esc(r.from)}</span> ${mark(r.from_match)}</div>` +
+        (r.model ? `<div>Hardware: <span class="mono">${esc(r.model)}</span></div>` : '') +
+        `<div>Firmware reportado: <span class="mono">${esc(r.firmware)}</span></div>`;
+    } else {
+      out.className = 'err';
+      out.textContent = `[X] ${r.error} (${hora})`;
+      proof.innerHTML = r.sent_id ? `<div>Paquete enviado: <span class="mono">${hex(r.sent_id)}</span> -- sin respuesta</div>` : '';
+    }
+  } catch (e) {
+    out.className = 'err';
+    out.textContent = `[X] No hay respuesta del servidor (${hora})`;
+    beep(false);
+    proof.innerHTML = '';
+  }
+  proof.style.display = proof.innerHTML ? 'block' : 'none';
+  btn.disabled = false;
+}
+document.getElementById('pingBtn').addEventListener('click', ping);
+
+// ---------------------------------------------------------------------------
+// Panel de conexión: cambiar entre USB y Bluetooth
+// ---------------------------------------------------------------------------
+const $ = id => document.getElementById(id);
+let connTab = 'serial';
+
+function showTab(mode) {
+  connTab = mode;
+  $('tabUsb').classList.toggle('on', mode === 'serial');
+  $('tabBle').classList.toggle('on', mode === 'ble');
+  $('paneUsb').style.display = mode === 'serial' ? '' : 'none';
+  $('paneBle').style.display = mode === 'ble' ? '' : 'none';
+}
+$('tabUsb').onclick = () => showTab('serial');
+$('tabBle').onclick = () => showTab('ble');
+
+function connMsg(text, cls = '') { $('connMsg').textContent = text; $('connMsg').className = cls; }
+
+async function loadConnection(selectTab = false) {
+  try {
+    const c = await (await fetch('/api/connection')).json();
+    const label = c.mode === 'ble' ? `Bluetooth (${c.target})`
+                : c.mode === 'serial' ? `USB (${c.target || 'autodetectar'})`
+                : c.mode === 'demo' ? 'Demo' : '--';
+    $('connSummary').textContent = label;
+    if (selectTab && (c.mode === 'ble' || c.mode === 'serial')) showTab(c.mode);
+    if (c.mode === 'ble' && c.target) $('bleAddr').value = c.target;
+    if (c.mode === 'serial' && c.target) await loadPorts(c.target);
+  } catch (e) { $('connSummary').textContent = '--'; }
+}
+
+async function loadPorts(selected) {
+  const sel = $('portSel');
+  const cur = selected ?? sel.value;
+  try {
+    const r = await (await fetch('/api/ports')).json();
+    sel.innerHTML = '<option value="">Autodetectar</option>' + r.ports.map(p =>
+      `<option value="${esc(p.port)}">${esc(p.port)}${p.description ? ' - ' + esc(p.description) : ''}</option>`).join('');
+    if (cur && ![...sel.options].some(o => o.value === cur))
+      sel.insertAdjacentHTML('beforeend', `<option value="${esc(cur)}">${esc(cur)} (no conectado)</option>`);
+    sel.value = cur || '';
+    return r.ports.length;
+  } catch (e) { return 0; }
+}
+$('portScan').onclick = async () => {
+  connMsg('Buscando puertos...');
+  const n = await loadPorts();
+  connMsg(n ? `${n} puerto(s) encontrado(s).` : 'No hay ningún nodo conectado por USB.', n ? 'ok' : 'err');
+};
+
+$('bleScan').onclick = async () => {
+  const btn = $('bleScan');
+  btn.disabled = true;
+  connMsg('Buscando nodos Bluetooth (unos 8 s)...');
+  try {
+    const r = await (await fetch('/api/ble/scan')).json();
+    if (!r.ok) { connMsg(r.error, 'err'); return; }
+    $('bleList').innerHTML = r.devices.map(d =>
+      `<div class="bledev" data-addr="${esc(d.address)}"><span>${esc(d.name)}</span>
+         <span class="addr">${esc(d.address)}${d.rssi != null ? ' ' + d.rssi + ' dBm' : ''}</span></div>`).join('');
+    connMsg(r.devices.length ? `${r.devices.length} nodo(s) encontrado(s). Elige uno.`
+                             : 'No se encontró ningún nodo. ¿Está encendido, cerca y sin USB conectado?',
+            r.devices.length ? 'ok' : 'err');
+  } catch (e) { connMsg('No hay respuesta del servidor.', 'err'); }
+  finally { btn.disabled = false; }
+};
+$('bleList').onclick = e => {
+  const d = e.target.closest('.bledev');
+  if (!d) return;
+  document.querySelectorAll('.bledev').forEach(x => x.classList.toggle('sel', x === d));
+  $('bleAddr').value = d.dataset.addr;
+};
+
+async function connect(mode, target) {
+  const btns = [$('usbConnect'), $('bleConnect')];
+  btns.forEach(b => b.disabled = true);
+  connMsg(`Cambiando a ${mode === 'ble' ? 'Bluetooth' : 'USB'}... (por Bluetooth tarda ~30 s)`);
+  try {
+    const r = await (await fetch('/api/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                  body: JSON.stringify({ mode, target }) })).json();
+    if (!r.ok) { connMsg(r.error, 'err'); return; }
+    infoKey = undefined;  // recargar la información del dispositivo con la nueva conexión
+    await loadConnection();
+    connMsg('Conectando... el estado de arriba cambia a "Conectado" cuando esté listo.', 'ok');
+  } catch (e) { connMsg('No hay respuesta del servidor.', 'err'); }
+  finally { btns.forEach(b => b.disabled = false); }
+}
+$('usbConnect').onclick = () => connect('serial', $('portSel').value || null);
+$('bleConnect').onclick = () => {
+  const a = $('bleAddr').value.trim();
+  if (!a) { connMsg('Escribe o elige la dirección del nodo.', 'err'); return; }
+  connect('ble', a);
+};
+
+showTab('serial');
+loadConnection(true);
+
+// ---------------------------------------------------------------------------
+// Pestaña "Gráfica": aceleración en vivo (canvas, sin librerías)
+// ---------------------------------------------------------------------------
+let chartTab = false, chartSecs = 60, chartData = null, chartHover = null, chartTableOn = false;
+const cvar = name => getComputedStyle(document.body).getPropertyValue(name).trim();
+const hhmmss = t => new Date(t * 1000).toLocaleTimeString('es-MX', { timeZone: TZ, hour: 'numeric', minute: '2-digit', second: '2-digit' });
+
+// Hojas del área de trabajo (pestañas abajo, como en Excel)
+const SHEETS = { mapa: 'map', grafica: 'chartPane', eventos: 'eventsPane', dispositivo: 'devicePane' };
+let sheetActual = 'mapa';
+function showSheet(name) {
+  sheetActual = name;
+  chartTab = name === 'grafica';
+  for (const [k, id] of Object.entries(SHEETS)) document.getElementById(id).style.display = k === name ? '' : 'none';
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x.dataset.tab === name));
+  if (name === 'mapa') map.invalidateSize();
+  if (name === 'grafica') loadChart();
+  if (name === 'eventos') loadEvents();
+}
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => showSheet(b.dataset.tab));
+document.querySelectorAll('[data-sheet]').forEach(b => b.onclick = () => showSheet(b.dataset.sheet));
+
+// Pestañas de la cinta de opciones
+document.querySelectorAll('#ribbonTabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#ribbonTabs button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.rbody').forEach(r => r.hidden = r.dataset.rib !== b.dataset.rib);
+});
+
+// Hoja "Eventos": tabla de caídas/golpes guardados + exportar a CSV (se abre en Excel)
+let eventos = [];
+async function loadEvents() {
+  try { eventos = (await (await fetch('/api/impacto/historial')).json()).eventos || []; } catch (e) { return; }
+  const el = document.getElementById('eventsTable');
+  if (!eventos.length) { el.innerHTML = '<div class="sub">Todavía no hay eventos guardados.</div>'; return; }
+  const n = eventos.length;
+  el.innerHTML = `<table><tr><th></th><th class="izq">Hora (CST)</th><th class="izq">Tipo</th><th>Pico (g)</th>` +
+    `<th>Reposo (g)</th><th>Dif. (g)</th><th>Latitud</th><th>Longitud</th></tr>` +
+    eventos.map((e, i) => `<tr><td class="fila">${n - i}</td><td class="izq">${fullTime(e.hora_nodo || e.recibido)}</td>` +
+      `<td class="izq">${e.tipo === 'caida' ? 'Caída' : 'Golpe'}</td><td>${fmt(e.pico_g, 2)}</td><td>${fmt(e.reposo_g, 2)}</td>` +
+      `<td>${fmt(e.dif_g, 2)}</td><td>${e.posicion ? e.posicion.lat.toFixed(6) : '--'}</td>` +
+      `<td>${e.posicion ? e.posicion.lon.toFixed(6) : '--'}</td></tr>`).join('') + '</table>';
+}
+setInterval(() => { if (sheetActual === 'eventos') loadEvents(); }, 5000);
+
+async function exportCSV() {
+  await loadEvents();
+  const fecha = ts => new Date(ts * 1000).toLocaleString('sv-SE', { timeZone: TZ });   // 2026-11-10 18:21:10
+  const filas = [['hora_cst', 'tipo', 'pico_g', 'reposo_g', 'dif_g', 'latitud', 'longitud']].concat(
+    eventos.slice().reverse().map(e => [fecha(e.hora_nodo || e.recibido), e.tipo, e.pico_g, e.reposo_g ?? '',
+                                         e.dif_g ?? '', e.posicion ? e.posicion.lat : '', e.posicion ? e.posicion.lon : '']));
+  const csv = '\ufeff' + filas.map(f => f.join(',')).join('\r\n');   // BOM: Excel respeta los acentos
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `eventos_rabanito_${new Date().toLocaleDateString('sv-SE', { timeZone: TZ })}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+document.getElementById('csvBtn').onclick = exportCSV;
+document.getElementById('csvBtn2').onclick = exportCSV;
+document.querySelectorAll('.crange button[data-s]').forEach(b => b.onclick = () => {
+  chartSecs = Number(b.dataset.s);
+  document.querySelectorAll('.crange button[data-s]').forEach(x => x.classList.toggle('on', x === b));
+  loadChart();
+});
+document.getElementById('chartTableBtn').onclick = () => {
+  chartTableOn = !chartTableOn;
+  document.getElementById('chartTable').style.display = chartTableOn ? '' : 'none';
+  renderChartTable();
+};
+
+async function loadChart() {
+  if (!chartTab) return;
+  try {
+    chartData = await (await fetch(`/api/acel?segundos=${chartSecs}`)).json();
+  } catch (e) { chartData = null; }
+  const msg = document.getElementById('chartMsg');
+  msg.textContent = !chartData ? 'Sin respuesta del servidor.'
+    : !chartData.available ? 'El nodo no está enviando aceleración (¿desconectado o firmware sin detector?).'
+    : !chartData.samples.length ? 'Esperando datos...' : '';
+  drawChart();
+  renderChartTable();
+}
+setInterval(loadChart, 1000);
+window.addEventListener('resize', drawChart);
+
+function niceStep(range, target) {
+  const raw = range / target, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  return [1, 2, 5, 10].map(m => m * mag).find(s => s >= raw);
+}
+
+// Geometría compartida entre el dibujo y el hover
+let chartGeo = null;
+function drawChart() {
+  const cv = document.getElementById('chart');
+  if (!chartTab || !cv) return;
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const fg = cvar('--fg'), fg2 = cvar('--fg-2'), fg3 = cvar('--fg-3'), line = cvar('--line'),
+        blue = cvar('--blue'), red = cvar('--red'), bg = cvar('--bg'), mono = cvar('--mono');
+  ctx.font = `11px ${mono}`;
+
+  const S = (chartData && chartData.samples) || [], M = (chartData && chartData.moves) || [];
+  const thr = chartData && chartData.threshold_g;
+  const lastRest = M.length ? M[M.length - 1].rest_g : 1.0;
+  const t1 = now(), t0 = t1 - chartSecs;
+  let ymax = 2;
+  for (const s of S) ymax = Math.max(ymax, s[3]);
+  for (const m of M) ymax = Math.max(ymax, m.peak_g);
+  if (thr) ymax = Math.max(ymax, lastRest + thr);
+  ymax *= 1.12;
+  const yStep = niceStep(ymax, 5);
+  ymax = Math.ceil(ymax / yStep) * yStep;
+  const L = 44, R = 16, T = 14, B = 26, pw = W - L - R, ph = H - T - B;
+  const X = t => L + (t - t0) / (t1 - t0) * pw, Y = g => T + ph - g / ymax * ph;
+  chartGeo = { X, Y, L, R, T, B, W, H, t0, t1, S, M };
+
+  // Rejilla y ejes (recesivos)
+  ctx.strokeStyle = line; ctx.lineWidth = 1; ctx.fillStyle = fg3; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let g = 0; g <= ymax + 1e-9; g += yStep) {
+    ctx.beginPath(); ctx.moveTo(L, Y(g) + .5); ctx.lineTo(W - R, Y(g) + .5); ctx.stroke();
+    ctx.fillText(`${+g.toFixed(1)} g`, L - 6, Y(g));
+  }
+  const xStep = chartSecs <= 60 ? 10 : chartSecs <= 300 ? 60 : 180;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let t = Math.ceil(t0 / xStep) * xStep; t <= t1; t += xStep) {
+    ctx.fillText(hhmmss(t), X(t), H - B + 6);
+  }
+  // Referencia 1 g (reposo esperado)
+  ctx.setLineDash([2, 3]); ctx.strokeStyle = fg3;
+  ctx.beginPath(); ctx.moveTo(L, Y(1) + .5); ctx.lineTo(W - R, Y(1) + .5); ctx.stroke();
+  // Nivel de alerta: reposo + dif. mínima
+  if (thr) {
+    ctx.setLineDash([4, 3]); ctx.strokeStyle = red; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(L, Y(lastRest + thr)); ctx.lineTo(W - R, Y(lastRest + thr)); ctx.stroke();
+    ctx.fillStyle = fg2; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`alerta: ${lastRest.toFixed(2)} + ${thr.toFixed(1)} = ${(lastRest + thr).toFixed(2)} g`, W - R - 2, Y(lastRest + thr) - 3);
+  }
+  ctx.setLineDash([]);
+
+  // Tramos continuos (se cortan si faltan lecturas > 3 s)
+  const segs = [];
+  for (const s of S) {
+    if (s[0] < t0) continue;
+    const seg = segs[segs.length - 1];
+    if (seg && s[0] - seg[seg.length - 1][0] <= 3) seg.push(s); else segs.push([s]);
+  }
+  ctx.save(); ctx.beginPath(); ctx.rect(L, T, pw, ph); ctx.clip();
+  // Banda mín-máx
+  ctx.fillStyle = fg3; ctx.globalAlpha = 0.3;
+  for (const seg of segs) {
+    ctx.beginPath();
+    seg.forEach((s, i) => i ? ctx.lineTo(X(s[0]), Y(s[3])) : ctx.moveTo(X(s[0]), Y(s[3])));
+    for (let i = seg.length - 1; i >= 0; i--) ctx.lineTo(X(seg[i][0]), Y(seg[i][2]));
+    ctx.closePath(); ctx.fill();
+    if (seg.length === 1) ctx.fillRect(X(seg[0][0]) - 1.5, Y(seg[0][3]), 3, Y(seg[0][2]) - Y(seg[0][3]));
+  }
+  ctx.globalAlpha = 1;
+  // Línea de aceleración
+  ctx.strokeStyle = blue; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (const seg of segs) {
+    ctx.beginPath();
+    seg.forEach((s, i) => i ? ctx.lineTo(X(s[0]), Y(s[1])) : ctx.moveTo(X(s[0]), Y(s[1])));
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Movimientos evaluados al quedar en reposo (etiqueta solo en los últimos 5)
+  M.forEach((m, i) => {
+    if (m.time < t0) return;
+    const x = X(m.time), y = Y(m.peak_g);
+    ctx.lineWidth = 2; ctx.strokeStyle = bg;
+    if (m.alerted) {
+      ctx.fillStyle = red;
+      ctx.beginPath(); ctx.moveTo(x, y - 7); ctx.lineTo(x + 6.5, y + 5); ctx.lineTo(x - 6.5, y + 5); ctx.closePath();
+      ctx.stroke(); ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(x, y, 5, 0, 2 * Math.PI); ctx.fillStyle = bg; ctx.fill();
+      ctx.strokeStyle = blue; ctx.stroke();
+    }
+    if (i >= M.length - 5) {
+      ctx.fillStyle = fg2; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(`dif ${m.diff_g.toFixed(1)}`, Math.min(Math.max(x, L + 20), W - R - 20), y - 9);
+    }
+  });
+
+  // Hover: cruz y tooltip
+  const tip = document.getElementById('chartTip');
+  if (chartHover == null || !S.length) { tip.style.display = 'none'; return; }
+  const hx = Math.min(Math.max(chartHover, L), W - R), ht = t0 + (hx - L) / pw * (t1 - t0);
+  let near = null, nd = 1e9;
+  for (const s of S) { const d = Math.abs(s[0] - ht); if (d < nd) { nd = d; near = s; } }
+  let mv = null;
+  for (const m of M) if (Math.abs(X(m.time) - hx) < 8) mv = m;
+  if (!near || nd > 3) { tip.style.display = 'none'; return; }
+  ctx.strokeStyle = fg3; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(X(near[0]) + .5, T); ctx.lineTo(X(near[0]) + .5, T + ph); ctx.stroke();
+  ctx.fillStyle = blue; ctx.beginPath(); ctx.arc(X(near[0]), Y(near[1]), 4, 0, 2 * Math.PI); ctx.fill();
+  tip.innerHTML = `<b>${hhmmss(near[0])}</b><br>aceleración: ${near[1].toFixed(2)} g<br>mín - máx: ${near[2].toFixed(2)} - ${near[3].toFixed(2)} g` +
+    (mv ? `<br><b>movimiento ${mv.alerted ? '[alertó]' : '[no alertó]'}</b><br>pico ${mv.peak_g.toFixed(2)} - reposo ${mv.rest_g.toFixed(2)} = ${mv.diff_g.toFixed(2)} g` : '');
+  tip.style.display = 'block';
+  const tx = X(near[0]) + 12, tw = tip.offsetWidth;
+  tip.style.left = (tx + tw > W ? X(near[0]) - tw - 12 : tx) + 'px';
+  tip.style.top = T + 4 + 'px';
+}
+const chartCanvas = document.getElementById('chart');
+chartCanvas.addEventListener('mousemove', e => { chartHover = e.offsetX; drawChart(); });
+chartCanvas.addEventListener('mouseleave', () => { chartHover = null; drawChart(); });
+
+function renderChartTable() {
+  const el = document.getElementById('chartTable');
+  if (!chartTableOn) return;
+  const M = ((chartData && chartData.moves) || []).slice().reverse();
+  el.innerHTML = M.length ? `<table><tr><th>Hora (CST)</th><th>Pico (g)</th><th>Reposo (g)</th><th>Dif. (g)</th><th>Alertó</th></tr>` +
+    M.map(m => `<tr><td>${hhmmss(m.time)}</td><td>${m.peak_g.toFixed(2)}</td><td>${m.rest_g.toFixed(2)}</td>` +
+                `<td>${m.diff_g.toFixed(2)}</td><td>${m.alerted ? 'sí' : 'no'}</td></tr>`).join('') + '</table>'
+    : '<div class="sub">Sin movimientos evaluados en esta ventana.</div>';
+}
+
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>

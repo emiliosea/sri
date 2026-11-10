@@ -1,0 +1,16 @@
+# --- Datos personales y de pruebas (ubicaciones, huellas Wi-Fi, identidad del nodo) ---
+data/
+
+# --- Entornos de Python (se reinstalan con requirements.txt) ---
+.venv/
+firmware/.venv-pio/
+__pycache__/
+*.pyc
+
+# --- Firmware: copia de MeshCore (otro proyecto, 370 MB) y bitácoras de compilación ---
+# Se reconstruye clonando MeshCore y aplicando firmware/rabanito-acelerometro.patch (ver README)
+firmware/MeshCore/
+firmware/*.log
+
+# --- Configuración local del editor / Claude ---
+.claude/
