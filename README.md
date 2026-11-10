@@ -18,7 +18,7 @@ con elevación.
 | Detector de caídas/golpes (banco de 5 s, pico - reposo) | Funcionando; 35 eventos de prueba |
 | Acelerómetro a ±32 g con calibración de 6 caras | Calibrado (reposo = 1.00 g) |
 | Ruta desde la PC hasta el nodo | Funcionando (ubicación de la PC por lugares Wi-Fi) |
-| Terreno 3D (MapLibre), alturas y perfil de la ruta | Funcionando (AWS Terrain Tiles, sin clave) |
+| Terreno 3D en malla de alambre, alturas y perfil de la ruta | Funcionando (AWS Terrain Tiles, sin clave) |
 | Radio | 915 MHz (banda permitida en México) |
 | Alertas por la malla LoRa a otros nodos | Pendiente |
 
@@ -54,7 +54,7 @@ Abrir http://localhost:5000. Sin opciones, `server.py` usa la última conexión 
 ```
 server.py                 Servidor web (Flask) y API
 meshcore_source.py        Conexión con el nodo MeshCore (USB / Bluetooth)
-static/index.html         Interfaz web (una sola página; Leaflet y MapLibre en static/vendor/)
+static/index.html         Interfaz web (una sola página; Leaflet en static/vendor/)
 firmware/
   rabanito-acelerometro.patch               Cambios sobre MeshCore v1.18.0
   RABANITO-meshcore-v1.18.0-rabanito-ble.uf2  Firmware Bluetooth listo para flashear
@@ -69,5 +69,5 @@ requirements.txt          Dependencias (requirements.lock: versiones exactas pro
 ## Licencia
 
 GPL-3.0 (ver [LICENSE](LICENSE)). El firmware parte de [MeshCore](https://github.com/meshcore-dev/MeshCore) (MIT)
-y la interfaz usa [Leaflet](https://leafletjs.com) (BSD-2), [MapLibre GL JS](https://maplibre.org) (BSD-3),
+y la interfaz usa [Leaflet](https://leafletjs.com) (BSD-2),
 mapas de © OpenStreetMap y elevación de AWS Terrain Tiles.

@@ -11,7 +11,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 4. Detector de caídas (v1) | 9 nov 2026 | Firmware propio que usa el acelerómetro |
 | 5. Detector v2, gráfica y calibración | 9-10 nov 2026 | Algoritmo pico - reposo, ±32 g, calibración de 6 caras |
 | 6. Ruta, interfaz tipo Excel y GitHub | 10 nov 2026 | Ruta automática, eventos en CSV, repositorio público |
-| 7. Terreno y elevación (MapLibre) | 10 nov 2026 | Mapa 3D con relieve, alturas y perfil de la ruta |
+| 7. Terreno y elevación | 10 nov 2026 | Relieve 3D en malla de alambre, alturas y perfil de la ruta |
 
 ---
 
@@ -74,10 +74,12 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 - Hoja **Eventos** con exportación a **CSV** para análisis en Excel.
 - Código publicado en GitHub.
 
-## Etapa 7 - Terreno y elevación con MapLibre (10 nov)
+## Etapa 7 - Terreno y elevación (10 nov)
 
-- Hoja **Terreno** con **MapLibre GL 5.24** (guardado en el proyecto): mapa en 3D, sombreado de relieve,
-  ruta y marcadores.
+- Hoja **Terreno**, primero con **MapLibre GL 5.24** (mapa 3D con sombreado de relieve). Era pesado (WebGL,
+  mosaicos de mapa y de relieve), así que se cambió por una **malla de alambre** propia: el servidor arma una
+  rejilla de 90x90 alturas y la página la dibuja en un canvas 2D, ocultando las líneas tapadas. Solo se redibuja
+  al girar o al cambiar los datos (~12 ms por cuadro) y ya no hace falta cargar MapLibre (~1 MB).
 - Elevación con **AWS Terrain Tiles** (gratis, sin clave). El servidor calcula la altura de cualquier punto
   con interpolación bilineal.
 - Altura del nodo y de la PC, y **perfil de elevación de la ruta** con subida/bajada acumulada y pendiente.

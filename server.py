@@ -998,48 +998,90 @@ def api_my_location_forget():
 # ---------------------------------------------------------------------------
 TERRAIN_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
 TERRAIN_Z = 14
-_tiles = {}                     # (x, y) -> imagen RGB de Pillow
+_tiles = {}                     # (z, x, y) -> imagen RGB de Pillow
 _tiles_lock = threading.Lock()
 
 
-def _terrain_tile(x, y):
+def _terrain_tile(x, y, z=TERRAIN_Z):
     import io
     import urllib.request
     from PIL import Image
     with _tiles_lock:
-        if (x, y) in _tiles:
-            return _tiles[(x, y)]
-    req = urllib.request.Request(TERRAIN_URL.format(z=TERRAIN_Z, x=x, y=y),
+        if (z, x, y) in _tiles:
+            return _tiles[(z, x, y)]
+    req = urllib.request.Request(TERRAIN_URL.format(z=z, x=x, y=y),
                                  headers={"User-Agent": "rastreador-meshcore/1.0"})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        img = Image.open(io.BytesIO(r.read())).convert("RGB")
+    for intento in range(3):           # S3 a veces tarda; reintentar
+        try:
+            with urllib.request.urlopen(req, timeout=8) as r:
+                img = Image.open(io.BytesIO(r.read())).convert("RGB")
+            break
+        except OSError:
+            if intento == 2:
+                raise
     img.load()
     with _tiles_lock:
         if len(_tiles) > 200:          # límite de memoria (~50 MB)
             _tiles.pop(next(iter(_tiles)))
-        _tiles[(x, y)] = img
+        _tiles[(z, x, y)] = img
     return img
 
 
-def _px_elev(px, py):
-    """Altura en el píxel global (px, py) del zoom TERRAIN_Z."""
+def _px_elev(px, py, z=TERRAIN_Z):
+    """Altura en el píxel global (px, py) del zoom z."""
     tx, ty = int(px // 256), int(py // 256)
-    r, g, b = _terrain_tile(tx, ty).getpixel((int(px) % 256, int(py) % 256))
+    r, g, b = _terrain_tile(tx, ty, z).getpixel((int(px) % 256, int(py) % 256))
     return r * 256 + g + b / 256 - 32768
 
 
-def elevation_at(lat, lon):
+def _merc_px(lat, lon, z):
+    import math
+    n = 2 ** z * 256
+    lr = math.radians(lat)
+    return ((lon + 180) / 360 * n - 0.5,
+            (1 - math.log(math.tan(lr) + 1 / math.cos(lr)) / math.pi) / 2 * n - 0.5)
+
+
+def elevation_at(lat, lon, z=TERRAIN_Z):
     """Altura sobre el nivel del mar (m) con interpolación bilineal entre 4 píxeles."""
     import math
-    n = 2 ** TERRAIN_Z * 256
-    fx = (lon + 180) / 360 * n - 0.5
-    lr = math.radians(lat)
-    fy = (1 - math.log(math.tan(lr) + 1 / math.cos(lr)) / math.pi) / 2 * n - 0.5
+    fx, fy = _merc_px(lat, lon, z)
     x0, y0 = math.floor(fx), math.floor(fy)
     dx, dy = fx - x0, fy - y0
-    e00, e10 = _px_elev(x0, y0), _px_elev(x0 + 1, y0)
-    e01, e11 = _px_elev(x0, y0 + 1), _px_elev(x0 + 1, y0 + 1)
+    e00, e10 = _px_elev(x0, y0, z), _px_elev(x0 + 1, y0, z)
+    e01, e11 = _px_elev(x0, y0 + 1, z), _px_elev(x0 + 1, y0 + 1, z)
     return (e00 * (1 - dx) * (1 - dy) + e10 * dx * (1 - dy) + e01 * (1 - dx) * dy + e11 * dx * dy)
+
+
+@app.route("/api/terreno/malla")
+def api_terrain_mesh():
+    """Malla de alturas n x n para la vista de alambre.
+    ?caja=lat1,lon1,lat2,lon2&n=80. Elige el zoom más alto con <= 16 mosaicos."""
+    from concurrent.futures import ThreadPoolExecutor
+    from flask import request
+    try:
+        la1, lo1, la2, lo2 = (float(v) for v in request.args.get("caja", "").split(","))
+        n = max(10, min(int(request.args.get("n", 80)), 150))
+    except ValueError:
+        return jsonify({"ok": False, "error": "caja=lat1,lon1,lat2,lon2"}), 400
+    s, w, nn, e = min(la1, la2), min(lo1, lo2), max(la1, la2), max(lo1, lo2)
+    z = TERRAIN_Z
+    while z > 6:
+        x1, y1 = _merc_px(nn, w, z)
+        x2, y2 = _merc_px(s, e, z)
+        tiles = [(tx, ty) for tx in range(int(x1 // 256), int(x2 // 256) + 2)
+                 for ty in range(int(y1 // 256), int(y2 // 256) + 2)]
+        if len(tiles) <= 16:
+            break
+        z -= 1
+    try:
+        with ThreadPoolExecutor(8) as ex:          # bajar los mosaicos en paralelo
+            list(ex.map(lambda t: _terrain_tile(t[0], t[1], z), tiles))
+        alt = [round(elevation_at(s + (nn - s) * i / (n - 1), w + (e - w) * j / (n - 1), z), 1)
+               for i in range(n) for j in range(n)]
+    except Exception as ex_:  # noqa: BLE001
+        return jsonify({"ok": False, "error": f"No se pudo leer el terreno ({type(ex_).__name__}); ¿hay internet?"}), 502
+    return jsonify({"ok": True, "n": n, "caja": [s, w, nn, e], "zoom": z, "alturas": alt})
 
 
 @app.route("/api/elevacion", methods=["POST"])

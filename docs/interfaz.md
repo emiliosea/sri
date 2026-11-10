@@ -32,15 +32,17 @@ los marcadores son los movimientos evaluados (triángulo rojo = alertó, círcul
 
 **Dispositivo** - identidad, firmware, GPS, sensores y radio del nodo.
 
-**Terreno** - mapa **MapLibre** en 3D con sombreado de relieve (se inclina con clic derecho y se activa/desactiva
-el 3D con el botón de montaña). Muestra:
+**Terreno** - relieve en 3D como **malla de alambre** (90x90 puntos) que cubre el nodo, la PC y la ruta. Se gira
+e inclina arrastrando, se acerca con la rueda; botones 1x/2x/4x para exagerar el relieve y "Vista inicial".
+Las zonas altas se dibujan más oscuras. Muestra:
 - **Alturas** sobre el nivel del mar del nodo y de esta PC, y la diferencia entre ambos (la del nodo también
   con la altitud que reporta su GPS, que suele ser mayor).
 - **Perfil de elevación de la ruta**: subidas y bajadas desde la PC hasta el nodo, con subida/bajada acumulada,
   altura mínima/máxima y pendiente máxima. Al pasar el mouse por el perfil se marca el punto en el mapa.
 
 Elevación: mosaicos abiertos **AWS Terrain Tiles** (formato terrarium, sin cuenta ni clave). El servidor calcula
-la altura exacta de cada punto (`POST /api/elevacion`, zoom 14, ~9 m por píxel); comprobado con el centro de
+la altura exacta de cada punto (`POST /api/elevacion`, zoom 14, ~9 m por píxel) y la malla
+(`GET /api/terreno/malla`, con el zoom más detallado que quepa en 16 mosaicos); comprobado con el centro de
 Monterrey (534 m) y el Cerro de la Silla (~1,750 m).
 
 ![Hoja Terreno](img/interfaz-terreno.png)
@@ -85,5 +87,6 @@ luego "Aplicar". Se guarda en `data/calibracion.json` y se reenvía al nodo en c
 | `GET/POST /api/calibracion/...` | Calibración de 6 caras |
 | `GET /api/ruta?desde=lat,lon&hasta=lat,lon&modo=pie` | Ruta |
 | `POST /api/elevacion` `{"puntos": [[lat, lon], ...]}` | Altura del terreno de cada punto (máx. 500) |
+| `GET /api/terreno/malla?caja=lat1,lon1,lat2,lon2&n=90` | Rejilla n x n de alturas para la malla de alambre |
 | `GET /api/mi_ubicacion`, `POST /api/mi_ubicacion/fijar` | Ubicación de la PC por Wi-Fi |
 | `GET /api/connection`, `POST /api/connect`, `GET /api/ble/scan`, `GET /api/ports` | Conexión |

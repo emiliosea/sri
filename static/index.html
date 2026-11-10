@@ -6,8 +6,6 @@
 <title>Rastreador MeshCore</title>
 <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
 <script src="/static/vendor/leaflet/leaflet.js"></script>
-<link rel="stylesheet" href="/static/vendor/maplibre/maplibre-gl.css">
-<script src="/static/vendor/maplibre/maplibre-gl.js"></script>
 <style>
   /* ============================================================
      Paleta: monocromática (blanco, negro y grises)
@@ -307,7 +305,7 @@
   #infoBody td:first-child { background: var(--bg-2); color: var(--fg-2); text-align: left; width: 40%; }
   #infoBody td { text-align: left; }
 
-  /* Hoja Terreno (MapLibre) */
+  /* Hoja Terreno (malla de alambre en canvas) */
   #terrainPane { gap: 6px; }
   #terrainTop { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; font-size: 12px; }
   #alturas { display: flex; gap: 0; border: 1px solid var(--line); }
@@ -315,13 +313,16 @@
   #alturas div:last-child { border-right: none; }
   #alturas b { display: block; font-size: 15px; }
   #terrainMap { flex: 1; min-height: 260px; border: 1px solid var(--line); position: relative; }
-  #terrainMap .lbl { cursor: default; }
+  #malla { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+  #malla.arrastrando { cursor: grabbing; }
+  #mallaCtl { position: absolute; top: 6px; left: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+  #mallaCtl .cbtn.on { background: var(--fg); color: var(--bg); }
+  #mallaInfo { position: absolute; bottom: 4px; right: 8px; font-size: 11px; color: var(--fg-3); pointer-events: none; }
   #perfilWrap { position: relative; height: 170px; border: 1px solid var(--line); }
   #perfil { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
   #perfilTip { position: absolute; display: none; pointer-events: none; font-size: 12px; padding: 4px 8px;
                background: var(--bg); color: var(--fg); border: 1px solid var(--fg); white-space: nowrap; }
   #perfilInfo { font-size: 12px; color: var(--fg-2); }
-  .maplibregl-ctrl-group { border-radius: 0 !important; }
 
   /* Barra de estado */
   #statusbar { display: flex; gap: 0; font-size: 12px; background: var(--bg-2); border-top: 1px solid var(--line); }
@@ -533,10 +534,16 @@
     </div>
     <div id="terrainPane" class="sheet" style="display:none">
       <div id="terrainTop">
-        <div><b>Terreno</b> <span class="sub">relieve y elevación (AWS Terrain Tiles); arrastra con clic derecho para inclinar</span></div>
+        <div><b>Terreno</b> <span class="sub">malla de alambre (AWS Terrain Tiles); arrastra para girar, rueda para acercar</span></div>
         <div id="alturas"></div>
       </div>
-      <div id="terrainMap"></div>
+      <div id="terrainMap"><canvas id="malla"></canvas>
+        <div id="mallaCtl">
+          <button class="cbtn" data-exag="1">1x</button><button class="cbtn on" data-exag="2">2x</button><button class="cbtn" data-exag="4">4x</button>
+          <button class="cbtn" id="mallaVista">Vista inicial</button>
+        </div>
+        <div id="mallaInfo"></div>
+      </div>
       <div id="perfilWrap"><canvas id="perfil"></canvas><div id="perfilTip"></div></div>
       <div id="perfilInfo"></div>
     </div>
@@ -664,8 +671,10 @@ function applyTheme(dark) {
   localStorage.setItem('tema', dark ? 'oscuro' : 'claro');
 }
 applyTheme(localStorage.getItem('tema') === 'oscuro');
-document.getElementById('themeBtn').addEventListener('click',
-  () => applyTheme(!document.body.classList.contains('dark')));
+document.getElementById('themeBtn').addEventListener('click', () => {
+  applyTheme(!document.body.classList.contains('dark'));
+  if (sheetActual === 'terreno') { dibujarMalla(); dibujarPerfil(); }
+});
 const fullTime = ts => ts ? new Date(ts * 1000).toLocaleString('es-MX',
   { timeZone: TZ, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', second: '2-digit' }) + ' CST' : '--';
 const coordText = n => `${n.lat.toFixed(6)}, ${n.lon.toFixed(6)}`;
@@ -1247,67 +1256,25 @@ function renderBars(status) {
 }
 
 // ---------------------------------------------------------------------------
-// Hoja "Terreno": MapLibre con relieve 3D, alturas del nodo y la PC, perfil de la ruta
-//   Elevación: AWS Terrain Tiles (terrarium, sin clave). El servidor da la altura exacta
-//   de cada punto (/api/elevacion) para no depender de lo que esté cargado en pantalla.
+// Hoja "Terreno": malla de alambre del relieve (canvas 2D, sin WebGL), alturas del nodo
+//   y la PC, perfil de la ruta. Elevación: AWS Terrain Tiles (terrarium, sin clave);
+//   el servidor arma la malla (/api/terreno/malla) y da alturas exactas (/api/elevacion).
+//   Solo se redibuja al girar, acercar o cuando cambian los datos.
 // ---------------------------------------------------------------------------
-const TERRARIUM = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
-let tMap = null, tListo = false, tMarcas = {}, tClave = null, perfilDatos = null, perfilHover = null;
+let tAbierto = false, tClave = null, perfilDatos = null, perfilHover = null;
+let malla = null, mallaClave = null;            // {n, caja, alturas, zoom}
+const vista = { giro: -0.35, incl: 0.95, zoom: 1, exag: 2 };
+const VISTA0 = { ...vista };
+let tPuntos = { nodo: null, pc: null, cursor: null };   // {lat, lon, e, txt}
 
 function abrirTerreno() {
-  if (!tMap) {
-    const me = nodoPrincipal();
-    const p = me && posOf(me);
-    tMap = new maplibregl.Map({
-      container: 'terrainMap',
-      center: p ? [p.lon, p.lat] : [-100.42, 25.66], zoom: 13.5, pitch: 60, bearing: -20, maxPitch: 80,
-      attributionControl: { compact: true },
-      style: {
-        version: 8,
-        sources: {
-          osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 19,
-                 attribution: '&copy; OpenStreetMap' },
-          dem: { type: 'raster-dem', tiles: [TERRARIUM], tileSize: 256, encoding: 'terrarium', maxzoom: 15,
-                 attribution: 'Elevación: AWS Terrain Tiles' },
-          sombra: { type: 'raster-dem', tiles: [TERRARIUM], tileSize: 256, encoding: 'terrarium', maxzoom: 15 },
-          ruta: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
-        },
-        layers: [
-          { id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-saturation': -1, 'raster-contrast': 0.1 } },
-          { id: 'relieve', type: 'hillshade', source: 'sombra',
-            paint: { 'hillshade-exaggeration': 0.6, 'hillshade-shadow-color': '#000000',
-                     'hillshade-highlight-color': '#ffffff', 'hillshade-accent-color': '#000000' } },
-          { id: 'ruta-borde', type: 'line', source: 'ruta', layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: { 'line-color': '#ffffff', 'line-width': 7 } },
-          { id: 'ruta', type: 'line', source: 'ruta', layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: { 'line-color': cvar('--red'), 'line-width': 4 } },
-        ],
-        terrain: { source: 'dem', exaggeration: 1.5 },
-      },
-    });
-    tMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-left');
-    tMap.addControl(new maplibregl.TerrainControl({ source: 'dem', exaggeration: 1.5 }), 'top-left');
-    tMap.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
-    tMap.on('load', () => { tListo = true; tClave = null; actualizarTerreno(true); });
-    actualizarTerreno(false);
-  } else {
-    tMap.resize();
-    actualizarTerreno(false);
-  }
+  tAbierto = true;
+  actualizarTerreno(false);
+  dibujarMalla();
 }
 
 function nodoPrincipal() {
   return nodes.find(n => n.num === lastStatus.my_node) || (nodes.length === 1 ? nodes[0] : null);
-}
-
-function marcaTerreno(id, lat, lon, html, tip) {
-  if (!tMarcas[id]) {
-    const el = document.createElement('div');
-    tMarcas[id] = new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(tMap);
-  }
-  tMarcas[id].getElement().innerHTML = html;
-  tMarcas[id].getElement().title = tip;
-  tMarcas[id].setLngLat([lon, lat]);
 }
 
 // Puntos cada ~20 m a lo largo de la ruta (máx. 300), con su distancia acumulada
@@ -1337,32 +1304,23 @@ function muestrearRuta(coords) {
   return out;
 }
 
-async function actualizarTerreno(ajustar) {
-  if (!tMap) return;
+async function actualizarTerreno(forzar) {
+  if (!tAbierto) return;
   const me = nodoPrincipal();
   const p = me && posOf(me);
   const yo = miPos;
   const clave = JSON.stringify([p && [p.lat.toFixed(5), p.lon.toFixed(5)], yo && [yo.lat.toFixed(5), yo.lon.toFixed(5)],
                                 rutaCoords && rutaCoords.length, rutaCoords && rutaCoords[0]]);
-  if (clave === tClave && !ajustar) return;          // nada cambió
+  if (clave === tClave && !forzar) {               // nada cambió; reintentar la malla si falló
+    if (!malla && !mallaClave && tPuntos.nodo) cargarMalla([[tPuntos.nodo.lat, tPuntos.nodo.lon],
+      ...(tPuntos.pc ? [[tPuntos.pc.lat, tPuntos.pc.lon]] : []), ...(rutaCoords || [])]);
+    return;
+  }
   tClave = clave;
 
-  // Mapa (solo cuando ya cargó; las alturas y el perfil no lo esperan)
-  if (tListo) {
-  tMap.setPaintProperty('osm', 'raster-brightness-max', document.body.classList.contains('dark') ? 0.6 : 1);
-  if (p) marcaTerreno('nodo', p.lat, p.lon, `<div class="lbl ${p.live ? 'me' : 'ghost'}">${esc(me.short_name)}</div>`, me.long_name);
-  if (yo) marcaTerreno('pc', yo.lat, yo.lon, '<div class="lbl pc">PC</div>', 'Esta computadora');
-  tMap.getSource('ruta').setData(rutaCoords ? { type: 'Feature', properties: {},
-    geometry: { type: 'LineString', coordinates: rutaCoords.map(c => [c[1], c[0]]) } } : { type: 'FeatureCollection', features: [] });
-
-  if (ajustar) {
-    const pts = [p && [p.lon, p.lat], yo && [yo.lon, yo.lat], ...(rutaCoords || []).map(c => [c[1], c[0]])].filter(Boolean);
-    if (pts.length > 1) {
-      const b = pts.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(pts[0], pts[0]));
-      tMap.fitBounds(b, { padding: 70, pitch: 60, bearing: -20, maxZoom: 16, duration: 0 });
-    } else if (pts.length) tMap.jumpTo({ center: pts[0], zoom: 14 });
-  }
-  }
+  // Malla: caja que cubre nodo, PC y ruta (con margen; mínimo ~1.5 km de lado)
+  const pts = [p && [p.lat, p.lon], yo && [yo.lat, yo.lon], ...(rutaCoords || [])].filter(Boolean);
+  if (pts.length) cargarMalla(pts);
 
   // Alturas: nodo, PC y la ruta muestreada en una sola petición
   const muestras = rutaCoords && rutaCoords.length > 1 ? muestrearRuta(rutaCoords) : [];
@@ -1376,6 +1334,8 @@ async function actualizarTerreno(ajustar) {
   const al = document.getElementById('alturas');
   if (!r.ok) { al.innerHTML = `<div class="err">${esc(r.error)}</div>`; return; }
   const [eN, ePC] = r.elevaciones;
+  tPuntos.nodo = p ? { lat: p.lat, lon: p.lon, e: eN, txt: me.short_name, vivo: p.live } : null;
+  tPuntos.pc = yo ? { lat: yo.lat, lon: yo.lon, e: ePC, txt: 'PC' } : null;
   const celdas = [];
   if (p) celdas.push(`<div>${esc(me.long_name)}<b>${eN.toFixed(0)} m</b>` +
                      `<span class="sub">${me.altitude != null ? `GPS: ${fmt(me.altitude, 0, ' m')}` : 'terreno'}</span></div>`);
@@ -1389,7 +1349,161 @@ async function actualizarTerreno(ajustar) {
 
   perfilDatos = muestras.length ? muestras.map((m, i) => ({ ...m, e: r.elevaciones[2 + i] })) : null;
   dibujarPerfil();
+  dibujarMalla();
 }
+
+async function cargarMalla(pts) {
+  let s = Math.min(...pts.map(c => c[0])), n = Math.max(...pts.map(c => c[0]));
+  let w = Math.min(...pts.map(c => c[1])), e = Math.max(...pts.map(c => c[1]));
+  const kx = Math.cos((s + n) / 2 * Math.PI / 180);
+  // cuadrada en metros, con 20 % de margen y al menos ~1.5 km de lado
+  const lado = Math.max((n - s) * 1.2, (e - w) * kx * 1.2, 0.0135);
+  const cl = (s + n) / 2, co = (w + e) / 2;
+  const caja = [cl - lado / 2, co - lado / 2 / kx, cl + lado / 2, co + lado / 2 / kx].map(v => v.toFixed(4));
+  const clave = caja.join(',');
+  if (clave === mallaClave) return;
+  mallaClave = clave;
+  document.getElementById('mallaInfo').textContent = 'Cargando terreno...';
+  try {
+    const r = await (await fetch(`/api/terreno/malla?caja=${clave}&n=90`)).json();
+    if (!r.ok) throw new Error(r.error);
+    if (clave !== mallaClave) return;               // llegó una más nueva
+    malla = r;
+  } catch (err) {
+    mallaClave = null;
+    document.getElementById('mallaInfo').textContent = String(err.message || err);
+    return;
+  }
+  dibujarMalla();
+}
+
+// Coordenadas locales en metros (x este, y norte) respecto al centro de la malla
+function aMetros(lat, lon) {
+  const [s, w, n, e] = malla.caja, cl = (s + n) / 2, co = (w + e) / 2;
+  return [(lon - co) * 111320 * Math.cos(cl * Math.PI / 180), (lat - cl) * 110574];
+}
+// Altura de la malla (bilineal) en un punto, para apoyar la ruta sobre el alambre
+function alturaMalla(lat, lon) {
+  const [s, w, n, e] = malla.caja, N = malla.n, A = malla.alturas;
+  const fi = Math.min(Math.max((lat - s) / (n - s) * (N - 1), 0), N - 1.001);
+  const fj = Math.min(Math.max((lon - w) / (e - w) * (N - 1), 0), N - 1.001);
+  const i = Math.floor(fi), j = Math.floor(fj), di = fi - i, dj = fj - j;
+  const a = A[i * N + j], b = A[i * N + j + 1], c = A[(i + 1) * N + j], d = A[(i + 1) * N + j + 1];
+  return a * (1 - di) * (1 - dj) + b * (1 - di) * dj + c * di * (1 - dj) + d * di * dj;
+}
+
+function dibujarMalla() {
+  const cv = document.getElementById('malla');
+  if (!tAbierto || !cv.clientWidth) return;
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  if (!malla) return;
+  const N = malla.n, A = malla.alturas, [s, w, n, e] = malla.caja;
+  let lo = Infinity, hi = -Infinity;
+  for (const v of A) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  const mid = (lo + hi) / 2;
+  const [x0, y0] = aMetros(s, w), [x1, y1] = aMetros(n, e);
+  const lado = Math.max(x1 - x0, y1 - y0);
+  const esc_ = Math.min(W, H) * 0.95 / lado * vista.zoom;
+  const cg = Math.cos(vista.giro), sg = Math.sin(vista.giro), ci = Math.cos(vista.incl), si = Math.sin(vista.incl);
+  const cx = W / 2, cy = H / 2 + H * 0.05;
+  // proyección ortográfica: giro alrededor del eje vertical, luego inclinación
+  const proy = (x, y, z) => {
+    const xr = x * cg - y * sg, yr = x * sg + y * cg, zz = (z - mid) * vista.exag;
+    return [cx + xr * esc_, cy - (yr * ci + zz * si) * esc_, yr * si - zz * ci];   // [sx, sy, profundidad]
+  };
+  // vértices proyectados
+  const P = new Float32Array(N * N * 3);
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+    const k = i * N + j;
+    const q = proy(x0 + (x1 - x0) * j / (N - 1), y0 + (y1 - y0) * i / (N - 1), A[k]);
+    P[k * 3] = q[0]; P[k * 3 + 1] = q[1]; P[k * 3 + 2] = q[2];
+  }
+  // celdas de atrás hacia adelante; se rellenan con el fondo para ocultar las líneas tapadas
+  const celdas = new Array((N - 1) * (N - 1));
+  for (let i = 0, c = 0; i < N - 1; i++) for (let j = 0; j < N - 1; j++, c++) celdas[c] = i * N + j;
+  const prof = k => P[k * 3 + 2] + P[(k + N + 1) * 3 + 2];
+  celdas.sort((a, b) => prof(b) - prof(a));
+  const fondo = cvar('--bg'), linea = cvar('--fg-3'), alto = cvar('--fg');
+  ctx.lineWidth = 0.7; ctx.lineJoin = 'round';
+  for (const k of celdas) {
+    const a = k, b = k + 1, c = k + N + 1, d = k + N;
+    ctx.beginPath();
+    ctx.moveTo(P[a * 3], P[a * 3 + 1]); ctx.lineTo(P[b * 3], P[b * 3 + 1]);
+    ctx.lineTo(P[c * 3], P[c * 3 + 1]); ctx.lineTo(P[d * 3], P[d * 3 + 1]); ctx.closePath();
+    ctx.fillStyle = fondo; ctx.fill();
+    // las celdas altas se marcan más oscuras para leer el relieve
+    const t = ((A[a] + A[c]) / 2 - lo) / Math.max(hi - lo, 1);
+    ctx.strokeStyle = t > 0.66 ? alto : linea; ctx.globalAlpha = 0.35 + 0.65 * t; ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  // ruta sobre la malla
+  const sobre = (lat, lon, el) => { const [x, y] = aMetros(lat, lon); return proy(x, y, el ?? alturaMalla(lat, lon)); };
+  if (rutaCoords && rutaCoords.length > 1) {
+    ctx.beginPath();
+    rutaCoords.forEach((c, i) => { const q = sobre(c[0], c[1]); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+    ctx.strokeStyle = fondo; ctx.lineWidth = 5; ctx.stroke();
+    ctx.strokeStyle = cvar('--red'); ctx.lineWidth = 2.5; ctx.stroke();
+  }
+  // marcadores con poste vertical
+  ctx.font = `bold 11px ${cvar('--mono')}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const [id, m] of Object.entries(tPuntos)) {
+    if (!m) continue;
+    const base = sobre(m.lat, m.lon, m.e);
+    if (id === 'cursor') {
+      ctx.fillStyle = cvar('--red'); ctx.beginPath(); ctx.arc(base[0], base[1], 5, 0, 2 * Math.PI); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+      continue;
+    }
+    const col = id === 'pc' ? cvar('--blue') : m.vivo ? cvar('--blue') : cvar('--red');
+    const top = [base[0], base[1] - 34];
+    ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(base[0], base[1]); ctx.lineTo(top[0], top[1]); ctx.stroke();
+    ctx.beginPath(); ctx.arc(base[0], base[1], 3, 0, 2 * Math.PI); ctx.fillStyle = col; ctx.fill();
+    const txt = `${m.txt} ${m.e.toFixed(0)} m`, tw = ctx.measureText(txt).width + 10;
+    ctx.fillStyle = id === 'pc' ? fondo : col; ctx.fillRect(top[0] - tw / 2, top[1] - 10, tw, 18);
+    ctx.strokeStyle = col; ctx.strokeRect(top[0] - tw / 2 + .5, top[1] - 9.5, tw - 1, 17);
+    ctx.fillStyle = id === 'pc' ? col : '#fff'; ctx.fillText(txt, top[0], top[1]);
+  }
+  // escala y rumbo
+  const kmLado = lado / 1000;
+  document.getElementById('mallaInfo').textContent =
+    `${kmLado >= 1 ? kmLado.toFixed(1) + ' km' : Math.round(lado) + ' m'} por lado | ${N}x${N} puntos | ` +
+    `${lo.toFixed(0)}-${hi.toFixed(0)} m | relieve x${vista.exag} | zoom de datos ${malla.zoom}`;
+  const nq = proy(0, lado * 0.5, mid), oq = proy(0, 0, mid);
+  const ang = Math.atan2(nq[0] - oq[0], -(nq[1] - oq[1]));
+  ctx.save(); ctx.translate(W - 24, 24); ctx.rotate(ang);
+  ctx.fillStyle = cvar('--fg'); ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(5, 6); ctx.lineTo(0, 2); ctx.lineTo(-5, 6); ctx.closePath(); ctx.fill();
+  ctx.restore(); ctx.fillStyle = cvar('--fg-2'); ctx.font = `10px ${cvar('--mono')}`; ctx.fillText('N', W - 24, 44);
+}
+
+// Girar (arrastrar), inclinar (arrastrar vertical), acercar (rueda); redibujo en el siguiente cuadro
+(() => {
+  const cv = document.getElementById('malla');
+  let arr = null, pend = false;
+  const pedir = () => { if (!pend) { pend = true; requestAnimationFrame(() => { pend = false; dibujarMalla(); }); } };
+  cv.addEventListener('pointerdown', e => { arr = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); cv.classList.add('arrastrando'); });
+  cv.addEventListener('pointermove', e => {
+    if (!arr) return;
+    vista.giro += (e.clientX - arr[0]) * 0.008;
+    vista.incl = Math.min(Math.max(vista.incl - (e.clientY - arr[1]) * 0.006, 0), 1.45);
+    arr = [e.clientX, e.clientY]; pedir();
+  });
+  const fin = () => { arr = null; cv.classList.remove('arrastrando'); };
+  cv.addEventListener('pointerup', fin); cv.addEventListener('pointercancel', fin);
+  cv.addEventListener('wheel', e => { e.preventDefault(); vista.zoom = Math.min(Math.max(vista.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), 0.4), 8); pedir(); }, { passive: false });
+  document.querySelectorAll('#mallaCtl [data-exag]').forEach(b => b.addEventListener('click', () => {
+    vista.exag = +b.dataset.exag;
+    document.querySelectorAll('#mallaCtl [data-exag]').forEach(x => x.classList.toggle('on', x === b));
+    dibujarMalla();
+  }));
+  document.getElementById('mallaVista').addEventListener('click', () => {
+    Object.assign(vista, { ...VISTA0, exag: vista.exag }); dibujarMalla();
+  });
+  window.addEventListener('resize', () => { if (sheetActual === 'terreno') dibujarMalla(); });
+})();
 
 function resumenPerfil(P) {
   let sube = 0, baja = 0, pend = 0;
@@ -1451,7 +1565,7 @@ function dibujarPerfil() {
     `de ${S.min.toFixed(0)} a ${S.max.toFixed(0)} m | pendiente máx. ~${S.pend.toFixed(0)} %`;
   // cruz y punto en el mapa al pasar el mouse
   const tip = document.getElementById('perfilTip');
-  if (perfilHover == null) { tip.style.display = 'none'; if (tMarcas.cursor) tMarcas.cursor.getElement().style.display = 'none'; return; }
+  if (perfilHover == null) { tip.style.display = 'none'; if (tPuntos.cursor) { tPuntos.cursor = null; dibujarMalla(); } return; }
   const d = (Math.min(Math.max(perfilHover, L), W - Rm) - L) / pw * S.total;
   const q = P.reduce((a, b) => Math.abs(b.d - d) < Math.abs(a.d - d) ? b : a);
   ctx.strokeStyle = cvar('--fg-3'); ctx.beginPath(); ctx.moveTo(X(q.d) + .5, T); ctx.lineTo(X(q.d) + .5, T + ph); ctx.stroke();
@@ -1460,8 +1574,8 @@ function dibujarPerfil() {
   tip.style.display = 'block';
   tip.style.left = (X(q.d) + 12 + tip.offsetWidth > W ? X(q.d) - tip.offsetWidth - 12 : X(q.d) + 12) + 'px';
   tip.style.top = '6px';
-  if (tListo) marcaTerreno('cursor', q.lat, q.lon, `<div style="width:12px;height:12px;border-radius:50%;background:${cvar('--red')};border:2px solid #fff"></div>`, '');
-  if (tMarcas.cursor) tMarcas.cursor.getElement().style.display = '';
+  tPuntos.cursor = { lat: q.lat, lon: q.lon, e: q.e };
+  dibujarMalla();
 }
 const perfilCv = document.getElementById('perfil');
 perfilCv.addEventListener('mousemove', e => { perfilHover = e.offsetX; dibujarPerfil(); });
