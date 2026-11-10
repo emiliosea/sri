@@ -12,7 +12,7 @@ Interfaz web organizada **al estilo Excel**. Las capturas son del modo demo (nod
 | **Cinta de opciones** | Todos los botones, en pestañas: **Inicio** (ping, hojas, ruta), **Detector** (borrar alarma, dif. mínima, calibrar, eventos, CSV), **Ruta** (modo, Google Maps, quitar, ubicación de la PC), **Conexión** (USB / Bluetooth) |
 | **Cuadro de nombre + barra de fórmulas** | Nodo y resumen de su estado en una línea |
 | **Panel lateral** | Solo información: Estado, Detector de caídas, Ubicación, Ruta, Nodos |
-| **Hojas (abajo)** | Mapa, Gráfica, Eventos, Dispositivo. Se pueden abrir directo con `?hoja=grafica`, etc. |
+| **Hojas (abajo)** | Mapa, Gráfica, Eventos, Dispositivo, Terreno. Se pueden abrir directo con `?hoja=terreno`, etc. |
 | **Barra de estado** | Listo / ALARMA, conexión, batería, aceleración, dif. mínima, hora de actualización |
 
 Colores: blanco y negro, **azul** para lo resaltado (este nodo, en vivo, OK) y **rojo** para alertas. Todas las
@@ -31,6 +31,19 @@ los marcadores son los movimientos evaluados (triángulo rojo = alertó, círcul
 ![Hoja Eventos](img/interfaz-eventos.png)
 
 **Dispositivo** - identidad, firmware, GPS, sensores y radio del nodo.
+
+**Terreno** - mapa **MapLibre** en 3D con sombreado de relieve (se inclina con clic derecho y se activa/desactiva
+el 3D con el botón de montaña). Muestra:
+- **Alturas** sobre el nivel del mar del nodo y de esta PC, y la diferencia entre ambos (la del nodo también
+  con la altitud que reporta su GPS, que suele ser mayor).
+- **Perfil de elevación de la ruta**: subidas y bajadas desde la PC hasta el nodo, con subida/bajada acumulada,
+  altura mínima/máxima y pendiente máxima. Al pasar el mouse por el perfil se marca el punto en el mapa.
+
+Elevación: mosaicos abiertos **AWS Terrain Tiles** (formato terrarium, sin cuenta ni clave). El servidor calcula
+la altura exacta de cada punto (`POST /api/elevacion`, zoom 14, ~9 m por píxel); comprobado con el centro de
+Monterrey (534 m) y el Cerro de la Silla (~1,750 m).
+
+![Hoja Terreno](img/interfaz-terreno.png)
 
 ## Ubicación y ruta
 
@@ -71,5 +84,6 @@ luego "Aplicar". Se guarda en `data/calibracion.json` y se reenvía al nodo en c
 | `POST /api/impacto/reset`, `/api/impacto/umbral` | Borrar alarma / cambiar dif. mínima |
 | `GET/POST /api/calibracion/...` | Calibración de 6 caras |
 | `GET /api/ruta?desde=lat,lon&hasta=lat,lon&modo=pie` | Ruta |
+| `POST /api/elevacion` `{"puntos": [[lat, lon], ...]}` | Altura del terreno de cada punto (máx. 500) |
 | `GET /api/mi_ubicacion`, `POST /api/mi_ubicacion/fijar` | Ubicación de la PC por Wi-Fi |
 | `GET /api/connection`, `POST /api/connect`, `GET /api/ble/scan`, `GET /api/ports` | Conexión |

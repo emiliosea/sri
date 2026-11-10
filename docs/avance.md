@@ -11,6 +11,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 4. Detector de caídas (v1) | 9 nov 2026 | Firmware propio que usa el acelerómetro |
 | 5. Detector v2, gráfica y calibración | 9-10 nov 2026 | Algoritmo pico - reposo, ±32 g, calibración de 6 caras |
 | 6. Ruta, interfaz tipo Excel y GitHub | 10 nov 2026 | Ruta automática, eventos en CSV, repositorio público |
+| 7. Terreno y elevación (MapLibre) | 10 nov 2026 | Mapa 3D con relieve, alturas y perfil de la ruta |
 
 ---
 
@@ -72,6 +73,15 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
   (Mapa, Gráfica, Eventos, Dispositivo) y barra de estado. Ver [interfaz.md](interfaz.md).
 - Hoja **Eventos** con exportación a **CSV** para análisis en Excel.
 - Código publicado en GitHub.
+
+## Etapa 7 - Terreno y elevación con MapLibre (10 nov)
+
+- Hoja **Terreno** con **MapLibre GL 5.24** (guardado en el proyecto): mapa en 3D, sombreado de relieve,
+  ruta y marcadores.
+- Elevación con **AWS Terrain Tiles** (gratis, sin clave). El servidor calcula la altura de cualquier punto
+  con interpolación bilineal.
+- Altura del nodo y de la PC, y **perfil de elevación de la ruta** con subida/bajada acumulada y pendiente.
+- Ejemplo real: nodo a 654 m (GPS: 700 m), PC a 386 m; ruta de 38 km a pie que sube 558 m y baja 290 m.
 
 ---
 

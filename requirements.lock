@@ -13,6 +13,7 @@ meshcore==2.3.17
 meshcore-cli==1.6.9
 meshtastic==2.7.11
 packaging==26.3
+pillow==13.0.0
 prompt-toolkit==3.0.53
 protobuf==7.36.2
 pycayennelpp==2.4.0

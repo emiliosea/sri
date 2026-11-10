@@ -990,6 +990,73 @@ def api_my_location_forget():
     return jsonify({"ok": True})
 
 
+# ---------------------------------------------------------------------------
+# Elevación del terreno (hoja "Terreno")
+#   Mosaicos abiertos AWS Terrain Tiles (formato "terrarium", sin clave):
+#     altura (m) = R * 256 + G + B / 256 - 32768
+#   Zoom 14: ~8.6 m por píxel en Monterrey. Los mosaicos se guardan en memoria.
+# ---------------------------------------------------------------------------
+TERRAIN_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+TERRAIN_Z = 14
+_tiles = {}                     # (x, y) -> imagen RGB de Pillow
+_tiles_lock = threading.Lock()
+
+
+def _terrain_tile(x, y):
+    import io
+    import urllib.request
+    from PIL import Image
+    with _tiles_lock:
+        if (x, y) in _tiles:
+            return _tiles[(x, y)]
+    req = urllib.request.Request(TERRAIN_URL.format(z=TERRAIN_Z, x=x, y=y),
+                                 headers={"User-Agent": "rastreador-meshcore/1.0"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        img = Image.open(io.BytesIO(r.read())).convert("RGB")
+    img.load()
+    with _tiles_lock:
+        if len(_tiles) > 200:          # límite de memoria (~50 MB)
+            _tiles.pop(next(iter(_tiles)))
+        _tiles[(x, y)] = img
+    return img
+
+
+def _px_elev(px, py):
+    """Altura en el píxel global (px, py) del zoom TERRAIN_Z."""
+    tx, ty = int(px // 256), int(py // 256)
+    r, g, b = _terrain_tile(tx, ty).getpixel((int(px) % 256, int(py) % 256))
+    return r * 256 + g + b / 256 - 32768
+
+
+def elevation_at(lat, lon):
+    """Altura sobre el nivel del mar (m) con interpolación bilineal entre 4 píxeles."""
+    import math
+    n = 2 ** TERRAIN_Z * 256
+    fx = (lon + 180) / 360 * n - 0.5
+    lr = math.radians(lat)
+    fy = (1 - math.log(math.tan(lr) + 1 / math.cos(lr)) / math.pi) / 2 * n - 0.5
+    x0, y0 = math.floor(fx), math.floor(fy)
+    dx, dy = fx - x0, fy - y0
+    e00, e10 = _px_elev(x0, y0), _px_elev(x0 + 1, y0)
+    e01, e11 = _px_elev(x0, y0 + 1), _px_elev(x0 + 1, y0 + 1)
+    return (e00 * (1 - dx) * (1 - dy) + e10 * dx * (1 - dy) + e01 * (1 - dx) * dy + e11 * dx * dy)
+
+
+@app.route("/api/elevacion", methods=["POST"])
+def api_elevation():
+    """Body: {"puntos": [[lat, lon], ...]} (máx. 500). Devuelve la altura de cada punto en metros."""
+    from flask import request
+    pts = (request.get_json(silent=True) or {}).get("puntos") or []
+    if not isinstance(pts, list) or not pts or len(pts) > 500:
+        return jsonify({"ok": False, "error": "Envía entre 1 y 500 puntos [lat, lon]"}), 400
+    try:
+        elev = [round(elevation_at(float(p[0]), float(p[1])), 1) for p in pts]
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, "error": f"No se pudo leer el terreno ({type(e).__name__}); ¿hay internet?"}), 502
+    return jsonify({"ok": True, "elevaciones": elev,
+                    "fuente": f"AWS Terrain Tiles (terrarium), zoom {TERRAIN_Z}"})
+
+
 @app.route("/api/impacto/historial")
 def api_impact_history():
     import json
