@@ -1,7 +1,7 @@
 # sri
 Interfaz, Sistema de Respuesta Inmediata, Huasteca, usando tecnologìa meshcore y LoRa
 
-Interfaz web para rastrear y vigilar un nodo LoRa (**RABANITO**, Seeed SenseCAP T1000-E) con firmware
+Interfaz web para rastrear y vigilar un nodo LoRa con firmware
 **MeshCore** modificado: última ubicación GPS en el mapa, **detector de caídas y golpes** con el acelerómetro,
 gráfica en vivo, registro de eventos, y ruta automática desde esta computadora hasta el nodo.
 
@@ -11,7 +11,7 @@ gráfica en vivo, registro de eventos, y ruta automática desde esta computadora
 
 | Componente | Estado |
 |---|---|
-| Interfaz web (estilo Excel: cinta, hojas, barra de estado) | Funcionando |
+| Interfaz web |
 | Conexión con el nodo por **Bluetooth** o **USB** | Funcionando (Linux) |
 | Firmware MeshCore v1.18.0 modificado (`v1.18.0-rabanito`) | Instalado en RABANITO |
 | Detector de caídas/golpes (banco de 5 s, pico - reposo) | Funcionando; 35 eventos de prueba |
