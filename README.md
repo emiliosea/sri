@@ -1,7 +1,7 @@
 # sri
 Interfaz, Sistema de Respuesta Inmediata, Huasteca, usando tecnologìa meshcore y LoRa
 
-Interfaz web para rastrear y vigilar un nodo LoRa con firmware
+Interfaz para rastrear y vigilar un nodo LoRa con firmware
 **MeshCore** modificado: última ubicación GPS en el mapa, **detector de caídas y golpes** con el acelerómetro,
 gráfica en vivo, registro de eventos, y ruta automática desde esta computadora hasta el nodo.
 
