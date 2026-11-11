@@ -1054,6 +1054,9 @@ let miPos = JSON.parse(localStorage.getItem('miUbicacion') || 'null');   // {lat
 let rutaModo = localStorage.getItem('rutaModo') || 'pie';
 let rutaLayer = null, pcMarker = null, rutaMotivo = null;
 let rutaCoords = null;        // geometría de la última ruta [[lat, lon], ...] (para la hoja Terreno)
+let rutaRecta = false;        // la última ruta es línea recta (se dibuja punteada)
+// Estilo único de la línea de ruta en todas las hojas: rojo, 4 px, punteada si es línea recta
+const RUTA_ESTILO = () => ({ color: cvar('--red'), weight: 4, opacity: .85, dashArray: rutaRecta ? '8 8' : null });
 let rutaAuto = true;          // trazar y actualizar la ruta sola (se apaga con "Quitar ruta")
 let rutaDestino = null;       // [lat, lon] del nodo en la última ruta trazada
 let rutaUltima = 0;           // cuándo se trazó (ms)
@@ -1187,8 +1190,8 @@ async function trazarRutaAhora(motivo, opts) {
   if (!r.ok) { rutaMsg(r.error, 'err'); return; }
   if (rutaLayer) map.removeLayer(rutaLayer);
   if (pcMarker) map.removeLayer(pcMarker);
-  rutaLayer = L.polyline(r.coords, { color: cvar('--red'), weight: 4, opacity: .85,
-                                     dashArray: r.modo === 'recta' ? '8 8' : null }).addTo(map);
+  rutaRecta = r.modo === 'recta';
+  rutaLayer = L.polyline(r.coords, RUTA_ESTILO()).addTo(map);
   pcMarker = L.marker([yo.lat, yo.lon], { icon: L.divIcon({ className: '', html: '<div class="lbl pc">PC</div>',
                                                              iconSize: [30, 30], iconAnchor: [15, 15] }) })
     .addTo(map).bindTooltip(`Esta computadora<br>${yo.lat.toFixed(5)}, ${yo.lon.toFixed(5)}`);
@@ -1382,7 +1385,7 @@ function actualizarPlano(ajustar) {
   }
   quita('ruta');
   if (rutaCoords && rutaCoords.length > 1)
-    plano.ruta = L.polyline(rutaCoords, { color: cvar('--red'), weight: 4, opacity: .85, interactive: false }).addTo(tPlano);
+    plano.ruta = L.polyline(rutaCoords, { ...RUTA_ESTILO(), interactive: false }).addTo(tPlano);
   for (const k of ['nodo', 'pc']) {
     quita(k);
     const m = tPuntos[k];
@@ -1516,6 +1519,13 @@ function redibujarMalla() {
   requestAnimationFrame(() => { redibujoPend = false; dibujarMalla(); });
 }
 
+// Línea de ruta en el 3D con el mismo estilo que en los mapas (después de un borde del color de fondo)
+function trazoRuta(ctx) {
+  ctx.setLineDash(rutaRecta ? [8, 8] : []);
+  ctx.strokeStyle = cvar('--red'); ctx.globalAlpha = .9; ctx.lineWidth = 4; ctx.stroke();
+  ctx.globalAlpha = 1; ctx.setLineDash([]);
+}
+
 function dibujarMalla() {
   const cv = document.getElementById('malla');
   if (!tAbierto || !cv.clientWidth) return;
@@ -1579,7 +1589,7 @@ function dibujarMalla() {
       rutaCoords.forEach((c, i) => { const q = enPiso(c[0], c[1]); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       ctx.strokeStyle = fondo; ctx.lineWidth = 6; ctx.stroke();
-      ctx.strokeStyle = cvar('--fg'); ctx.lineWidth = 3; ctx.stroke();
+      trazoRuta(ctx);
     }
 
     // 3) Curvas de nivel a su altura, de la más baja a la más alta; cada 5a más gruesa
@@ -1622,7 +1632,7 @@ function dibujarMalla() {
       rutaCoords.forEach((c, i) => { const [x, y] = aMetros(c[0], c[1]); const q = proy(x, y, alturaMalla(c[0], c[1]));
                                      i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
       ctx.strokeStyle = fondo; ctx.lineWidth = 6; ctx.stroke();
-      ctx.strokeStyle = cvar('--fg'); ctx.lineWidth = 3; ctx.stroke();
+      trazoRuta(ctx);
     }
   }
 

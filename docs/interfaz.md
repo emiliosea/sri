@@ -34,7 +34,7 @@ los marcadores son los movimientos evaluados (triángulo rojo = alertó, círcul
 
 **Terreno** - vista 3D del área que cubre el nodo, la PC y la ruta. Se gira e inclina arrastrando, se acerca
 con la rueda; botones 1x/2x/4x para exagerar el relieve y "Vista inicial". Dos modos:
-- **Curvas + mapa** (por defecto): el mapa de calles en blanco y negro es el piso, con la ruta en negro, y encima
+- **Curvas + mapa** (por defecto): el mapa de calles en blanco y negro es el piso, con la ruta en rojo (igual que en la hoja Mapa), y encima
   las **curvas de nivel** a su altura real, de **gris (suelo) a azul, morado y rojo (cima)**; una de cada cinco es
   más gruesa. El nodo y la PC tienen un poste punteado desde el mapa hasta su altura.
 - **Malla**: malla de alambre (90x90 puntos) con los mismos colores por altura.
