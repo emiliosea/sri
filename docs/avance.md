@@ -80,6 +80,10 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
   mosaicos de mapa y de relieve), así que se cambió por una **malla de alambre** propia: el servidor arma una
   rejilla de 90x90 alturas y la página la dibuja en un canvas 2D, ocultando las líneas tapadas. Solo se redibuja
   al girar o al cambiar los datos (~12 ms por cuadro) y ya no hace falta cargar MapLibre (~1 MB).
+- Vista **Curvas + mapa** (a partir de un boceto): el mapa de calles en blanco y negro como piso del 3D y las
+  curvas de nivel encima, de gris (suelo) a azul, morado y rojo (cima). Las curvas se calculan una vez por
+  malla (marching squares) y cada mosaico del mapa se dibuja con una transformación afín: ~1 ms por cuadro.
+  La malla de alambre sigue como segundo modo, y debajo hay un mapa normal del mismo recuadro.
 - Elevación con **AWS Terrain Tiles** (gratis, sin clave). El servidor calcula la altura de cualquier punto
   con interpolación bilineal.
 - Altura del nodo y de la PC, y **perfil de elevación de la ruta** con subida/bajada acumulada y pendiente.

@@ -312,7 +312,9 @@
   #alturas div { padding: 4px 12px; border-right: 1px solid var(--line); }
   #alturas div:last-child { border-right: none; }
   #alturas b { display: block; font-size: 15px; }
-  #terrainMap { flex: 1; min-height: 260px; border: 1px solid var(--line); position: relative; }
+  #terrainMap { flex: none; height: max(420px, 58vh); border: 1px solid var(--line); position: relative; }
+  #terrenoPlano { flex: none; height: max(320px, 42vh); border: 1px solid var(--line); }
+  #terrenoPlanoTit { font-size: 12px; color: var(--fg-2); margin-bottom: -4px; }
   #malla { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; }
   #malla.arrastrando { cursor: grabbing; }
   #mallaCtl { position: absolute; top: 6px; left: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
@@ -534,16 +536,20 @@
     </div>
     <div id="terrainPane" class="sheet" style="display:none">
       <div id="terrainTop">
-        <div><b>Terreno</b> <span class="sub">malla de alambre (AWS Terrain Tiles); arrastra para girar, rueda para acercar</span></div>
+        <div><b>Terreno</b> <span class="sub">mapa con curvas de nivel en 3D (gris = suelo, azul, morado, rojo = cima); arrastra para girar, rueda para acercar</span></div>
         <div id="alturas"></div>
       </div>
       <div id="terrainMap"><canvas id="malla"></canvas>
         <div id="mallaCtl">
           <button class="cbtn" data-exag="1">1x</button><button class="cbtn on" data-exag="2">2x</button><button class="cbtn" data-exag="4">4x</button>
           <button class="cbtn" id="mallaVista">Vista inicial</button>
+          <span style="width:8px"></span>
+          <button class="cbtn on" data-modo="curvas">Curvas + mapa</button><button class="cbtn" data-modo="malla">Malla</button>
         </div>
         <div id="mallaInfo"></div>
       </div>
+      <div id="terrenoPlanoTit"><b>Mapa del área de la malla</b> (recuadro punteado = lo que cubre la malla)</div>
+      <div id="terrenoPlano"></div>
       <div id="perfilWrap"><canvas id="perfil"></canvas><div id="perfilTip"></div></div>
       <div id="perfilInfo"></div>
     </div>
@@ -673,7 +679,7 @@ function applyTheme(dark) {
 applyTheme(localStorage.getItem('tema') === 'oscuro');
 document.getElementById('themeBtn').addEventListener('click', () => {
   applyTheme(!document.body.classList.contains('dark'));
-  if (sheetActual === 'terreno') { dibujarMalla(); dibujarPerfil(); }
+  if (sheetActual === 'terreno') { dibujarMalla(); dibujarPerfil(); actualizarPlano(false); }
 });
 const fullTime = ts => ts ? new Date(ts * 1000).toLocaleString('es-MX',
   { timeZone: TZ, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', second: '2-digit' }) + ' CST' : '--';
@@ -1263,12 +1269,14 @@ function renderBars(status) {
 // ---------------------------------------------------------------------------
 let tAbierto = false, tClave = null, perfilDatos = null, perfilHover = null;
 let malla = null, mallaClave = null;            // {n, caja, alturas, zoom}
-const vista = { giro: -0.35, incl: 0.95, zoom: 1, exag: 2 };
+const vista = { giro: -0.35, incl: 0.95, zoom: 1, exag: 2, modo: 'curvas' };
 const VISTA0 = { ...vista };
 let tPuntos = { nodo: null, pc: null, cursor: null };   // {lat, lon, e, txt}
 
 function abrirTerreno() {
   tAbierto = true;
+  planoInit();
+  setTimeout(() => tPlano.invalidateSize(), 0);
   actualizarTerreno(false);
   dibujarMalla();
 }
@@ -1350,6 +1358,45 @@ async function actualizarTerreno(forzar) {
   perfilDatos = muestras.length ? muestras.map((m, i) => ({ ...m, e: r.elevaciones[2 + i] })) : null;
   dibujarPerfil();
   dibujarMalla();
+  actualizarPlano(false);
+}
+
+// Mapa plano (Leaflet, blanco y negro) del mismo recuadro que la malla, para ver proporciones
+let tPlano = null;
+const plano = { caja: null, ruta: null, nodo: null, pc: null, cursor: null };
+function planoInit() {
+  if (tPlano) return;
+  tPlano = L.map('terrenoPlano', { zoomControl: false }).setView([25.66, -100.42], 13);
+  L.control.zoom({ zoomInText: '+', zoomOutText: '-' }).addTo(tPlano);
+  L.control.scale({ imperial: false }).addTo(tPlano);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(tPlano);
+}
+function actualizarPlano(ajustar) {
+  if (!tPlano) return;
+  const quita = k => { if (plano[k]) { tPlano.removeLayer(plano[k]); plano[k] = null; } };
+  if (malla) {
+    const [s, w, n, e] = malla.caja;
+    quita('caja');
+    plano.caja = L.rectangle([[s, w], [n, e]], { color: cvar('--fg'), weight: 1.5, dashArray: '6 6', fill: false, interactive: false }).addTo(tPlano);
+    if (ajustar) tPlano.fitBounds([[s, w], [n, e]], { padding: [10, 10] });
+  }
+  quita('ruta');
+  if (rutaCoords && rutaCoords.length > 1)
+    plano.ruta = L.polyline(rutaCoords, { color: cvar('--red'), weight: 4, opacity: .85, interactive: false }).addTo(tPlano);
+  for (const k of ['nodo', 'pc']) {
+    quita(k);
+    const m = tPuntos[k];
+    if (!m) continue;
+    const html = k === 'pc' ? '<div class="lbl pc">PC</div>' : `<div class="lbl ${m.vivo ? 'me' : 'ghost'}">${esc(m.txt)}</div>`;
+    plano[k] = L.marker([m.lat, m.lon], { icon: L.divIcon({ className: '', html, iconSize: [30, 30], iconAnchor: [15, 15] }) })
+      .addTo(tPlano).bindTooltip(`${k === 'pc' ? 'Esta PC' : esc(m.txt)}: ${m.e.toFixed(0)} m`);
+  }
+}
+function planoCursor(q) {
+  if (!tPlano) return;
+  if (!q) { if (plano.cursor) { tPlano.removeLayer(plano.cursor); plano.cursor = null; } return; }
+  if (!plano.cursor) plano.cursor = L.circleMarker([q.lat, q.lon], { radius: 6, color: '#fff', weight: 2, fillColor: cvar('--fg'), fillOpacity: 1 }).addTo(tPlano);
+  else plano.cursor.setLatLng([q.lat, q.lon]);
 }
 
 async function cargarMalla(pts) {
@@ -1369,6 +1416,7 @@ async function cargarMalla(pts) {
     if (!r.ok) throw new Error(r.error);
     if (clave !== mallaClave) return;               // llegó una más nueva
     malla = r;
+    actualizarPlano(true);
   } catch (err) {
     mallaClave = null;
     document.getElementById('mallaInfo').textContent = String(err.message || err);
@@ -1392,6 +1440,82 @@ function alturaMalla(lat, lon) {
   return a * (1 - di) * (1 - dj) + b * (1 - di) * dj + c * di * (1 - dj) + d * di * dj;
 }
 
+// Rampa de color por altura: gris (suelo) -> azul -> morado -> rojo (cima); n tonos como texto CSS
+function rampaAltura(ctx, n) {
+  const rgb = c => { ctx.fillStyle = '#000'; ctx.fillStyle = c; const h = ctx.fillStyle;
+    return h[0] === '#' ? [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)) : h.match(/\d+/g).slice(0, 3).map(Number); };
+  const paradas = [[0, rgb(cvar('--fg-3'))], [0.25, rgb(cvar('--blue'))], [1, rgb(cvar('--red'))]];
+  return Array.from({ length: n }, (_, i) => {
+    const t = i / (n - 1);
+    const k = t <= paradas[1][0] ? 0 : 1, [ta, ca] = paradas[k], [tb, cb] = paradas[k + 1], f = (t - ta) / (tb - ta);
+    return `rgb(${ca.map((v, m) => Math.round(v + (cb[m] - v) * f)).join(',')})`;
+  });
+}
+const colorDe = (rampa, t) => rampa[Math.min(rampa.length - 1, Math.max(0, Math.round(t * (rampa.length - 1))))];
+
+// Curvas de nivel (marching squares) de la malla, en metros locales; se calculan una vez por malla
+let curvas = null;
+function calcularCurvas() {
+  const N = malla.n, A = malla.alturas, [s, w, n, e] = malla.caja;
+  let lo = Infinity, hi = -Infinity;
+  for (const v of A) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  const paso = niceStep(Math.max(hi - lo, 10), 22);
+  const [x0, y0] = aMetros(s, w), [x1, y1] = aMetros(n, e);
+  const gx = (x1 - x0) / (N - 1), gy = (y1 - y0) / (N - 1);
+  const niveles = [];
+  for (let L = Math.ceil(lo / paso) * paso; L < hi; L += paso) niveles.push({ L, segs: [] });
+  const cruce = (va, vb, L) => (L - va) / (vb - va);
+  for (let i = 0; i < N - 1; i++) for (let j = 0; j < N - 1; j++) {
+    const a = A[i * N + j], b = A[i * N + j + 1], c = A[(i + 1) * N + j + 1], d = A[(i + 1) * N + j];
+    const mn = Math.min(a, b, c, d), mx = Math.max(a, b, c, d);
+    for (const nv of niveles) {
+      const L = nv.L;
+      if (L < mn || L >= mx) continue;
+      const idx = (a > L ? 1 : 0) | (b > L ? 2 : 0) | (c > L ? 4 : 0) | (d > L ? 8 : 0);
+      // puntos donde la curva cruza cada borde de la celda (abajo, derecha, arriba, izquierda)
+      const P = {
+        ab: (a > L) !== (b > L) ? [j + cruce(a, b, L), i] : null,
+        bd: (b > L) !== (c > L) ? [j + 1, i + cruce(b, c, L)] : null,
+        ar: (d > L) !== (c > L) ? [j + cruce(d, c, L), i + 1] : null,
+        iz: (a > L) !== (d > L) ? [j, i + cruce(a, d, L)] : null,
+      };
+      let pares;
+      if (idx === 5 || idx === 10) {            // punto de silla: decide el centro
+        const arriba = (a + b + c + d) / 4 > L;
+        pares = (idx === 5) === arriba ? [['ab', 'bd'], ['ar', 'iz']] : [['ab', 'iz'], ['bd', 'ar']];
+      } else pares = [Object.keys(P).filter(k => P[k])];
+      for (const [p, q] of pares)
+        nv.segs.push(x0 + P[p][0] * gx, y0 + P[p][1] * gy, x0 + P[q][0] * gx, y0 + P[q][1] * gy);
+    }
+  }
+  curvas = { malla, lo, hi, paso, niveles };
+}
+
+// Mosaicos del mapa (OSM) para el piso, ya en blanco y negro; se guardan en memoria
+const pisoTiles = new Map();
+function pisoTile(z, x, y, oscuro) {
+  const k = `${z}/${x}/${y}/${oscuro}`;
+  if (pisoTiles.has(k)) return pisoTiles.get(k);
+  const ent = { listo: false, cv: null };
+  pisoTiles.set(k, ent);
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const g = c.getContext('2d');
+    g.filter = oscuro ? 'grayscale(1) invert(1) brightness(.85) contrast(1.1)' : 'grayscale(1) contrast(1.05)';
+    g.drawImage(img, 0, 0);
+    ent.cv = c; ent.listo = true; redibujarMalla();
+  };
+  img.src = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+  return ent;
+}
+let redibujoPend = false;
+function redibujarMalla() {
+  if (redibujoPend) return;
+  redibujoPend = true;
+  requestAnimationFrame(() => { redibujoPend = false; dibujarMalla(); });
+}
+
 function dibujarMalla() {
   const cv = document.getElementById('malla');
   if (!tAbierto || !cv.clientWidth) return;
@@ -1401,9 +1525,9 @@ function dibujarMalla() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
   if (!malla) return;
+  if (!curvas || curvas.malla !== malla) calcularCurvas();
   const N = malla.n, A = malla.alturas, [s, w, n, e] = malla.caja;
-  let lo = Infinity, hi = -Infinity;
-  for (const v of A) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  const { lo, hi } = curvas;
   const mid = (lo + hi) / 2;
   const [x0, y0] = aMetros(s, w), [x1, y1] = aMetros(n, e);
   const lado = Math.max(x1 - x0, y1 - y0);
@@ -1415,63 +1539,133 @@ function dibujarMalla() {
     const xr = x * cg - y * sg, yr = x * sg + y * cg, zz = (z - mid) * vista.exag;
     return [cx + xr * esc_, cy - (yr * ci + zz * si) * esc_, yr * si - zz * ci];   // [sx, sy, profundidad]
   };
-  // vértices proyectados
-  const P = new Float32Array(N * N * 3);
-  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
-    const k = i * N + j;
-    const q = proy(x0 + (x1 - x0) * j / (N - 1), y0 + (y1 - y0) * i / (N - 1), A[k]);
-    P[k * 3] = q[0]; P[k * 3 + 1] = q[1]; P[k * 3 + 2] = q[2];
+  const fondo = cvar('--bg');
+  const rampa = rampaAltura(ctx, 64);
+  const t = el => (el - lo) / Math.max(hi - lo, 1);
+  const curvasModo = vista.modo === 'curvas';
+  const pisoZ = lo;                                  // el mapa va a la altura más baja
+  const enPiso = (lat, lon) => { const [x, y] = aMetros(lat, lon); return proy(x, y, pisoZ); };
+
+  if (curvasModo) {
+    // 1) Piso: mapa en blanco y negro. En proyección ortográfica un plano es una transformación afín,
+    //    así que cada mosaico se dibuja con setTransform (rápido, sin deformar).
+    const esq = [[s, w], [s, e], [n, e], [n, w]].map(([la, lo_]) => enPiso(la, lo_));
+    ctx.save();
+    ctx.beginPath(); esq.forEach((q, i) => i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])); ctx.closePath();
+    ctx.clip();
+    const latc = (s + n) / 2, oscuro = document.body.classList.contains('dark');
+    const z = Math.max(10, Math.min(17, Math.round(Math.log2(40075016.686 * Math.cos(latc * Math.PI / 180) * 5 / lado))));
+    const Z = 2 ** z;
+    const lon2x = lon => Math.floor((lon + 180) / 360 * Z);
+    const lat2y = lat => { const r = lat * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * Z); };
+    const x2lon = x => x / Z * 360 - 180;
+    const y2lat = y => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / Z))) * 180 / Math.PI;
+    for (let tx = lon2x(w); tx <= lon2x(e); tx++) for (let ty = lat2y(n); ty <= lat2y(s); ty++) {
+      const ent = pisoTile(z, tx, ty, oscuro);
+      if (!ent.listo) continue;
+      const nw = enPiso(y2lat(ty), x2lon(tx)), ne = enPiso(y2lat(ty), x2lon(tx + 1)), sw = enPiso(y2lat(ty + 1), x2lon(tx));
+      ctx.setTransform(dpr * (ne[0] - nw[0]) / 256, dpr * (ne[1] - nw[1]) / 256,
+                       dpr * (sw[0] - nw[0]) / 256, dpr * (sw[1] - nw[1]) / 256, dpr * nw[0], dpr * nw[1]);
+      ctx.drawImage(ent.cv, 0, 0, 256.8, 256.8);      // 0.8 px extra para que no se vean juntas
+    }
+    ctx.restore();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.strokeStyle = cvar('--fg-3'); ctx.lineWidth = 1;
+    ctx.beginPath(); esq.forEach((q, i) => i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])); ctx.closePath(); ctx.stroke();
+
+    // 2) Ruta sobre el mapa
+    if (rutaCoords && rutaCoords.length > 1) {
+      ctx.beginPath();
+      rutaCoords.forEach((c, i) => { const q = enPiso(c[0], c[1]); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.strokeStyle = fondo; ctx.lineWidth = 6; ctx.stroke();
+      ctx.strokeStyle = cvar('--fg'); ctx.lineWidth = 3; ctx.stroke();
+    }
+
+    // 3) Curvas de nivel a su altura, de la más baja a la más alta; cada 5a más gruesa
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    for (const nv of curvas.niveles) {
+      const S = nv.segs;
+      if (!S.length) continue;
+      ctx.beginPath();
+      for (let k = 0; k < S.length; k += 4) {
+        const a = proy(S[k], S[k + 1], nv.L), b = proy(S[k + 2], S[k + 3], nv.L);
+        ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+      }
+      ctx.strokeStyle = colorDe(rampa, t(nv.L));
+      ctx.lineWidth = Math.round(nv.L / curvas.paso) % 5 === 0 ? 2 : 1.1;
+      ctx.stroke();
+    }
+  } else {
+    // Malla de alambre: celdas de atrás hacia adelante, rellenas con el fondo para ocultar lo tapado
+    const P = new Float32Array(N * N * 3);
+    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+      const k = i * N + j;
+      const q = proy(x0 + (x1 - x0) * j / (N - 1), y0 + (y1 - y0) * i / (N - 1), A[k]);
+      P[k * 3] = q[0]; P[k * 3 + 1] = q[1]; P[k * 3 + 2] = q[2];
+    }
+    const celdas = new Array((N - 1) * (N - 1));
+    for (let i = 0, c = 0; i < N - 1; i++) for (let j = 0; j < N - 1; j++, c++) celdas[c] = i * N + j;
+    const prof = k => P[k * 3 + 2] + P[(k + N + 1) * 3 + 2];
+    celdas.sort((a, b) => prof(b) - prof(a));
+    ctx.lineWidth = 0.8; ctx.lineJoin = 'round';
+    for (const k of celdas) {
+      const a = k, b = k + 1, c = k + N + 1, d = k + N;
+      ctx.beginPath();
+      ctx.moveTo(P[a * 3], P[a * 3 + 1]); ctx.lineTo(P[b * 3], P[b * 3 + 1]);
+      ctx.lineTo(P[c * 3], P[c * 3 + 1]); ctx.lineTo(P[d * 3], P[d * 3 + 1]); ctx.closePath();
+      ctx.fillStyle = fondo; ctx.fill();
+      ctx.strokeStyle = colorDe(rampa, t((A[a] + A[b] + A[c] + A[d]) / 4)); ctx.stroke();
+    }
+    if (rutaCoords && rutaCoords.length > 1) {
+      ctx.beginPath();
+      rutaCoords.forEach((c, i) => { const [x, y] = aMetros(c[0], c[1]); const q = proy(x, y, alturaMalla(c[0], c[1]));
+                                     i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+      ctx.strokeStyle = fondo; ctx.lineWidth = 6; ctx.stroke();
+      ctx.strokeStyle = cvar('--fg'); ctx.lineWidth = 3; ctx.stroke();
+    }
   }
-  // celdas de atrás hacia adelante; se rellenan con el fondo para ocultar las líneas tapadas
-  const celdas = new Array((N - 1) * (N - 1));
-  for (let i = 0, c = 0; i < N - 1; i++) for (let j = 0; j < N - 1; j++, c++) celdas[c] = i * N + j;
-  const prof = k => P[k * 3 + 2] + P[(k + N + 1) * 3 + 2];
-  celdas.sort((a, b) => prof(b) - prof(a));
-  const fondo = cvar('--bg'), linea = cvar('--fg-3'), alto = cvar('--fg');
-  ctx.lineWidth = 0.7; ctx.lineJoin = 'round';
-  for (const k of celdas) {
-    const a = k, b = k + 1, c = k + N + 1, d = k + N;
-    ctx.beginPath();
-    ctx.moveTo(P[a * 3], P[a * 3 + 1]); ctx.lineTo(P[b * 3], P[b * 3 + 1]);
-    ctx.lineTo(P[c * 3], P[c * 3 + 1]); ctx.lineTo(P[d * 3], P[d * 3 + 1]); ctx.closePath();
-    ctx.fillStyle = fondo; ctx.fill();
-    // las celdas altas se marcan más oscuras para leer el relieve
-    const t = ((A[a] + A[c]) / 2 - lo) / Math.max(hi - lo, 1);
-    ctx.strokeStyle = t > 0.66 ? alto : linea; ctx.globalAlpha = 0.35 + 0.65 * t; ctx.stroke(); ctx.globalAlpha = 1;
-  }
-  // ruta sobre la malla
-  const sobre = (lat, lon, el) => { const [x, y] = aMetros(lat, lon); return proy(x, y, el ?? alturaMalla(lat, lon)); };
-  if (rutaCoords && rutaCoords.length > 1) {
-    ctx.beginPath();
-    rutaCoords.forEach((c, i) => { const q = sobre(c[0], c[1]); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
-    ctx.strokeStyle = fondo; ctx.lineWidth = 5; ctx.stroke();
-    ctx.strokeStyle = cvar('--red'); ctx.lineWidth = 2.5; ctx.stroke();
-  }
-  // marcadores con poste vertical
+
+  // Marcadores: en modo curvas, poste desde el mapa hasta su altura real
   ctx.font = `bold 11px ${cvar('--mono')}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const [id, m] of Object.entries(tPuntos)) {
     if (!m) continue;
-    const base = sobre(m.lat, m.lon, m.e);
+    const [mx, my] = aMetros(m.lat, m.lon);
+    const arriba = proy(mx, my, m.e), suelo = curvasModo ? proy(mx, my, pisoZ) : arriba;
+    if (curvasModo) {
+      ctx.strokeStyle = cvar('--fg'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(suelo[0], suelo[1]); ctx.lineTo(arriba[0], arriba[1]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = cvar('--fg'); ctx.beginPath(); ctx.arc(suelo[0], suelo[1], 2.5, 0, 2 * Math.PI); ctx.fill();
+    }
     if (id === 'cursor') {
-      ctx.fillStyle = cvar('--red'); ctx.beginPath(); ctx.arc(base[0], base[1], 5, 0, 2 * Math.PI); ctx.fill();
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = cvar('--fg'); ctx.beginPath(); ctx.arc(arriba[0], arriba[1], 5, 0, 2 * Math.PI); ctx.fill();
+      ctx.strokeStyle = fondo; ctx.lineWidth = 2; ctx.stroke();
       continue;
     }
     const col = id === 'pc' ? cvar('--blue') : m.vivo ? cvar('--blue') : cvar('--red');
-    const top = [base[0], base[1] - 34];
+    const top = [arriba[0], arriba[1] - 30];
     ctx.strokeStyle = col; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(base[0], base[1]); ctx.lineTo(top[0], top[1]); ctx.stroke();
-    ctx.beginPath(); ctx.arc(base[0], base[1], 3, 0, 2 * Math.PI); ctx.fillStyle = col; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(arriba[0], arriba[1]); ctx.lineTo(top[0], top[1]); ctx.stroke();
+    ctx.beginPath(); ctx.arc(arriba[0], arriba[1], 3, 0, 2 * Math.PI); ctx.fillStyle = col; ctx.fill();
     const txt = `${m.txt} ${m.e.toFixed(0)} m`, tw = ctx.measureText(txt).width + 10;
     ctx.fillStyle = id === 'pc' ? fondo : col; ctx.fillRect(top[0] - tw / 2, top[1] - 10, tw, 18);
     ctx.strokeStyle = col; ctx.strokeRect(top[0] - tw / 2 + .5, top[1] - 9.5, tw - 1, 17);
     ctx.fillStyle = id === 'pc' ? col : '#fff'; ctx.fillText(txt, top[0], top[1]);
   }
+  // leyenda de colores
+  const LX = 8, LY = 40, LW = 160;
+  rampa.forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(LX + i * LW / rampa.length, LY, LW / rampa.length + 1, 8); });
+  ctx.strokeStyle = cvar('--line'); ctx.lineWidth = 1; ctx.strokeRect(LX + .5, LY + .5, LW, 8);
+  ctx.font = `10px ${cvar('--mono')}`; ctx.fillStyle = cvar('--fg-2'); ctx.textBaseline = 'top';
+  ctx.textAlign = 'left'; ctx.fillText(`${lo.toFixed(0)} m`, LX, LY + 11);
+  ctx.textAlign = 'right'; ctx.fillText(`${hi.toFixed(0)} m`, LX + LW, LY + 11);
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
   // escala y rumbo
   const kmLado = lado / 1000;
   document.getElementById('mallaInfo').textContent =
-    `${kmLado >= 1 ? kmLado.toFixed(1) + ' km' : Math.round(lado) + ' m'} por lado | ${N}x${N} puntos | ` +
-    `${lo.toFixed(0)}-${hi.toFixed(0)} m | relieve x${vista.exag} | zoom de datos ${malla.zoom}`;
+    `${kmLado >= 1 ? kmLado.toFixed(1) + ' km' : Math.round(lado) + ' m'} por lado | ` +
+    (curvasModo ? `curvas cada ${curvas.paso} m (gruesa cada ${curvas.paso * 5} m)` : `${N}x${N} puntos`) +
+    ` | ${lo.toFixed(0)}-${hi.toFixed(0)} m | relieve x${vista.exag}`;
   const nq = proy(0, lado * 0.5, mid), oq = proy(0, 0, mid);
   const ang = Math.atan2(nq[0] - oq[0], -(nq[1] - oq[1]));
   ctx.save(); ctx.translate(W - 24, 24); ctx.rotate(ang);
@@ -1499,8 +1693,13 @@ function dibujarMalla() {
     document.querySelectorAll('#mallaCtl [data-exag]').forEach(x => x.classList.toggle('on', x === b));
     dibujarMalla();
   }));
+  document.querySelectorAll('#mallaCtl [data-modo]').forEach(b => b.addEventListener('click', () => {
+    vista.modo = b.dataset.modo;
+    document.querySelectorAll('#mallaCtl [data-modo]').forEach(x => x.classList.toggle('on', x === b));
+    dibujarMalla();
+  }));
   document.getElementById('mallaVista').addEventListener('click', () => {
-    Object.assign(vista, { ...VISTA0, exag: vista.exag }); dibujarMalla();
+    Object.assign(vista, { ...VISTA0, exag: vista.exag, modo: vista.modo }); dibujarMalla();
   });
   window.addEventListener('resize', () => { if (sheetActual === 'terreno') dibujarMalla(); });
 })();
@@ -1565,7 +1764,7 @@ function dibujarPerfil() {
     `de ${S.min.toFixed(0)} a ${S.max.toFixed(0)} m | pendiente máx. ~${S.pend.toFixed(0)} %`;
   // cruz y punto en el mapa al pasar el mouse
   const tip = document.getElementById('perfilTip');
-  if (perfilHover == null) { tip.style.display = 'none'; if (tPuntos.cursor) { tPuntos.cursor = null; dibujarMalla(); } return; }
+  if (perfilHover == null) { tip.style.display = 'none'; planoCursor(null); if (tPuntos.cursor) { tPuntos.cursor = null; dibujarMalla(); } return; }
   const d = (Math.min(Math.max(perfilHover, L), W - Rm) - L) / pw * S.total;
   const q = P.reduce((a, b) => Math.abs(b.d - d) < Math.abs(a.d - d) ? b : a);
   ctx.strokeStyle = cvar('--fg-3'); ctx.beginPath(); ctx.moveTo(X(q.d) + .5, T); ctx.lineTo(X(q.d) + .5, T + ph); ctx.stroke();
@@ -1576,6 +1775,7 @@ function dibujarPerfil() {
   tip.style.top = '6px';
   tPuntos.cursor = { lat: q.lat, lon: q.lon, e: q.e };
   dibujarMalla();
+  planoCursor(q);
 }
 const perfilCv = document.getElementById('perfil');
 perfilCv.addEventListener('mousemove', e => { perfilHover = e.offsetX; dibujarPerfil(); });

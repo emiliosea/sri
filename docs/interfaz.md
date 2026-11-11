@@ -32,13 +32,19 @@ los marcadores son los movimientos evaluados (triángulo rojo = alertó, círcul
 
 **Dispositivo** - identidad, firmware, GPS, sensores y radio del nodo.
 
-**Terreno** - relieve en 3D como **malla de alambre** (90x90 puntos) que cubre el nodo, la PC y la ruta. Se gira
-e inclina arrastrando, se acerca con la rueda; botones 1x/2x/4x para exagerar el relieve y "Vista inicial".
-Las zonas altas se dibujan más oscuras. Muestra:
+**Terreno** - vista 3D del área que cubre el nodo, la PC y la ruta. Se gira e inclina arrastrando, se acerca
+con la rueda; botones 1x/2x/4x para exagerar el relieve y "Vista inicial". Dos modos:
+- **Curvas + mapa** (por defecto): el mapa de calles en blanco y negro es el piso, con la ruta en negro, y encima
+  las **curvas de nivel** a su altura real, de **gris (suelo) a azul, morado y rojo (cima)**; una de cada cinco es
+  más gruesa. El nodo y la PC tienen un poste punteado desde el mapa hasta su altura.
+- **Malla**: malla de alambre (90x90 puntos) con los mismos colores por altura.
+
+Debajo hay además un **mapa normal del mismo recuadro** (línea punteada) con la ruta, el nodo y la PC. Muestra:
 - **Alturas** sobre el nivel del mar del nodo y de esta PC, y la diferencia entre ambos (la del nodo también
   con la altitud que reporta su GPS, que suele ser mayor).
 - **Perfil de elevación de la ruta**: subidas y bajadas desde la PC hasta el nodo, con subida/bajada acumulada,
-  altura mínima/máxima y pendiente máxima. Al pasar el mouse por el perfil se marca el punto en el mapa.
+  altura mínima/máxima y pendiente máxima. Al pasar el mouse por el perfil se marca el punto en la malla y en el
+  mapa.
 
 Elevación: mosaicos abiertos **AWS Terrain Tiles** (formato terrarium, sin cuenta ni clave). El servidor calcula
 la altura exacta de cada punto (`POST /api/elevacion`, zoom 14, ~9 m por píxel) y la malla
