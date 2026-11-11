@@ -320,7 +320,7 @@
   #mallaCtl { position: absolute; top: 6px; left: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
   #mallaCtl .cbtn.on { background: var(--fg); color: var(--bg); }
   #mallaInfo { position: absolute; bottom: 4px; right: 8px; font-size: 11px; color: var(--fg-3); pointer-events: none; }
-  #perfilWrap { position: relative; height: 170px; border: 1px solid var(--line); }
+  #perfilWrap { flex: none; position: relative; height: 170px; border: 1px solid var(--line); }
   #perfil { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
   #perfilTip { position: absolute; display: none; pointer-events: none; font-size: 12px; padding: 4px 8px;
                background: var(--bg); color: var(--fg); border: 1px solid var(--fg); white-space: nowrap; }
@@ -548,10 +548,10 @@
         </div>
         <div id="mallaInfo"></div>
       </div>
-      <div id="terrenoPlanoTit"><b>Mapa del área de la malla</b> (recuadro punteado = lo que cubre la malla)</div>
-      <div id="terrenoPlano"></div>
       <div id="perfilWrap"><canvas id="perfil"></canvas><div id="perfilTip"></div></div>
       <div id="perfilInfo"></div>
+      <div id="terrenoPlanoTit"><b>Mapa del área de la malla</b> (recuadro punteado = lo que cubre la malla)</div>
+      <div id="terrenoPlano"></div>
     </div>
     <div id="devicePane" class="sheet" style="display:none">
       <div class="chead"><div><b>Información del dispositivo</b></div></div>
