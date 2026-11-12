@@ -70,6 +70,9 @@ Monterrey (534 m) y el Cerro de la Silla (~1,750 m).
 
 - **Visto por última vez**: si el GPS pierde señal, el mapa muestra la última posición guardada (marcador rojo
   punteado) con la hora.
+- **GPS apagado en el nodo**: si el GPS de RABANITO está apagado (por ejemplo con 4 pulsaciones seguidas del botón
+  o desde la app MeshCore), aparece un aviso rojo en Ubicación con el botón **Encender GPS**, y "GPS APAGADO" en la
+  barra de fórmulas y en la barra de estado. El nodo guarda el ajuste al encenderlo.
 - **Ruta automática** desde esta computadora hasta la última ubicación del nodo, con distancia y tiempo (a pie,
   en coche o línea recta). Con una alarma, la ruta se destaca y la interfaz cambia a la hoja Mapa.
 - Rutas por calles con OSRM (routing.openstreetmap.de): se envían las coordenadas de la PC y del nodo. Sin
@@ -102,6 +105,7 @@ luego "Aplicar". Se guarda en `data/calibracion.json` y se reenvía al nodo en c
 | `GET /api/info` | Información del dispositivo |
 | `POST /api/ping` | Ping al nodo |
 | `GET /api/acel?segundos=60` | Historial de aceleración (gráfica) |
+| `POST /api/gps` `{"encendido": true}` | Enciende o apaga el GPS del nodo (el nodo guarda el ajuste) |
 | `GET /api/impacto/historial` | Eventos guardados |
 | `POST /api/impacto/reset`, `/api/impacto/umbral` | Borrar alarma / cambiar dif. mínima |
 | `GET/POST /api/calibracion/...` | Calibración de 6 caras |

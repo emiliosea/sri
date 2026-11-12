@@ -96,6 +96,12 @@
   .coordbox .coords { font-family: var(--mono); font-size: 18px; font-weight: 700; margin: 6px 0 2px; }
   .coordbox .sub { font-size: 12px; color: var(--fg-2); }
   #mine .waiting { font-size: 13px; color: var(--red); margin-top: 6px; }
+  #mine .gpsOff { border: 2px solid var(--red); color: var(--red); padding: 6px 8px; margin-bottom: 8px; font-size: 13px; }
+  #mine .gpsOff b { display: block; }
+  #mine .gpsOff button { margin-top: 6px; background: var(--red); color: #fff; border: 1px solid var(--red); font: inherit;
+                         font-weight: 700; padding: 3px 10px; cursor: pointer; }
+  #mine .gpsOff .sub { color: var(--fg-2); }
+  #sbGps { color: var(--red); font-weight: 700; }
   /* ---------- Detector de caídas (foco) ---------- */
   .foco { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: middle;
           background: var(--gray-mark); border: 1px solid var(--fg-3); margin-left: 6px; flex-shrink: 0; }
@@ -579,6 +585,7 @@
 <div id="statusbar">
   <span id="sbEstado">Listo</span>
   <span id="connSummary">--</span>
+  <span id="sbGps"></span>
   <span id="sbBat"></span>
   <span id="sbAcel"></span>
   <span id="sbUmbral"></span>
@@ -726,13 +733,17 @@ function renderMine(status) {
   if (!me) { el.style.display = 'none'; return; }
   el.style.display = 'block';
   const p = posOf(me);
+  const gpsOff = me.gps_on === false;
   el.innerHTML = '' +
+    (gpsOff ? `<div class="gpsOff"><b>[!] GPS APAGADO EN EL NODO</b>No calculará ni enviará posiciones nuevas.
+       <div class="sub">Se apaga con 4 pulsaciones seguidas del botón del nodo o desde la app MeshCore.</div>
+       <button id="gpsOnBtn"${gpsEncendiendo ? ' disabled' : ''}>${gpsEncendiendo ? 'Encendiendo...' : 'Encender GPS'}</button></div>` : '') +
     (p && p.live ? coordsBlock(p) + (me.position_rx
         ? `<div class="sub">La posición se actualiza sola mientras el GPS tenga señal.</div>`
         : `<div class="waiting">[!] Posición guardada en el nodo. Aún no llega una nueva desde que se conectó (¿GPS sin señal?).</div>`)
      : p ? `<div class="lastseen-tag">[!] Visto por última vez ${ago(p.position_time)}</div>
             ${coordsBlock(p)}
-            <div class="waiting">[!] GPS sin señal ahora: el mapa muestra dónde estuvo por última vez.</div>`
+            <div class="waiting">[!] ${gpsOff ? 'GPS apagado' : 'GPS sin señal ahora'}: el mapa muestra dónde estuvo por última vez.</div>`
      : `<div class="waiting">[...] Esperando señal GPS</div>
         <div class="sub">El nodo aún no reporta ubicación. Ponlo con vista al cielo.</div>`) +
     `<div class="timers">
@@ -741,6 +752,21 @@ function renderMine(status) {
      </div>`;
   tick();
 }
+
+// Botón "Encender GPS" del aviso (el recuadro se redibuja en cada lectura, por eso va por delegación)
+let gpsEncendiendo = false;
+document.getElementById('mine').addEventListener('click', async e => {
+  if (e.target.id !== 'gpsOnBtn' || gpsEncendiendo) return;
+  gpsEncendiendo = true; e.target.disabled = true; e.target.textContent = 'Encendiendo...';
+  let r;
+  try {
+    r = await (await fetch('/api/gps', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ encendido: true }) })).json();
+  } catch (err) { r = { ok: false, error: 'Sin respuesta del servidor' }; }
+  gpsEncendiendo = false;
+  if (!r.ok) alert('No se pudo encender el GPS: ' + (r.error || 'error'));
+  poll();
+});
 
 // Información fija del dispositivo: se pide una vez por conexión
 let infoKey;  // undefined al inicio para que el primer render siempre actualice el panel
@@ -1259,6 +1285,7 @@ function renderBars(status) {
   partes.push(status.connected ? 'conectado' : 'desconectado');
   if (p) partes.push(`${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} ${p.live ? '(GPS actual)' : `(visto ${ago(p.position_time)})`}`);
   else partes.push('sin ubicación GPS');
+  if (me && me.gps_on === false) partes.push('GPS APAGADO');
   if (imp && imp.available) {
     partes.push(imp.active ? `ALARMA: ${imp.type === 'caida' ? 'caída' : 'golpe'} ${fmt(imp.diff_g, 2, ' g')}` : 'detector: sin alarma');
   }
@@ -1266,6 +1293,7 @@ function renderBars(status) {
   const est = document.getElementById('sbEstado');
   est.textContent = imp && imp.active ? 'ALARMA' : status.connected ? 'Listo' : 'Desconectado';
   est.className = imp && imp.active ? 'err' : status.connected ? 'ok' : 'err';
+  document.getElementById('sbGps').textContent = me && me.gps_on === false ? 'GPS APAGADO' : '';
   document.getElementById('sbBat').textContent = me && me.battery != null ? `Batería ${batteryText(me.battery)}` : '';
   document.getElementById('sbAcel').textContent = imp && imp.accel_g != null ? `Aceleración ${fmt(imp.accel_g, 2, ' g')}` : '';
   document.getElementById('sbUmbral').textContent = imp && imp.threshold_g ? `Dif. mínima ${fmt(imp.threshold_g, 1, ' g')}` : '';

@@ -522,6 +522,7 @@ class DemoSource:
         with self._lock:
             nodes = last_seen.update(track_positions(track_uptime([normalize(n) for n in self._nodes])))
         nodes[0]["impact"] = self._demo_impact()
+        nodes[0]["gps_on"] = DemoSource._gps_on
         return nodes
 
     # Detector de caídas simulado: un evento cada ~45 s (para probar la interfaz)
@@ -580,7 +581,12 @@ class DemoSource:
                 "moves": [m for m in DemoSource._moves if m["time"] >= since and m["time"] <= time.time()],
                 "threshold_g": DemoSource._imp["threshold_g"], "available": True}
 
+    _gps_on = True
+
     def impact_cmd(self, name, value):
+        if name == "gps":
+            DemoSource._gps_on = value == "1"
+            return {"ok": True}
         if name == "impacto" and value == "0":
             DemoSource._imp["active"] = False
         elif name == "umbral_g":
@@ -723,6 +729,18 @@ def api_impact_threshold():
     if not 1.0 <= g <= 55:
         return jsonify({"ok": False, "error": "La diferencia mínima debe estar entre 1 y 55 g"}), 400
     return jsonify(source.impact_cmd("umbral_g", f"{g:.2f}"))
+
+
+@app.route("/api/gps", methods=["POST"])
+def api_gps():
+    """Enciende o apaga el GPS del nodo: {"encendido": true|false}. El nodo guarda el ajuste."""
+    from flask import request
+    if not hasattr(source, "impact_cmd"):
+        return jsonify({"ok": False, "error": "Solo disponible con un nodo MeshCore"}), 400
+    on = bool((request.get_json(silent=True) or {}).get("encendido", True))
+    r = source.impact_cmd("gps", "1" if on else "0")
+    r.pop("impact", None)
+    return jsonify({**r, "gps": on})
 
 
 @app.route("/api/acel")

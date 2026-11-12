@@ -325,6 +325,7 @@ class MeshCoreSource:
     def nodes(self):
         with self._lock:
             s, contacts, dev = self._cache["self"], list(self._cache["contacts"]), self._cache["device"]
+            gps = (self._cache.get("custom") or {}).get("gps")
         if not s or not self.state.get("connected"):
             return []
         me = s["info"]
@@ -340,6 +341,7 @@ class MeshCoreSource:
             "snr": None, "hops_away": 0, "last_heard": s["seen"],
             "temperature": s["temps"][0] if s["temps"] else None, "lux": s["lux"],
             "impact": self._impact,
+            "gps_on": None if gps is None else gps == "1",     # False = GPS apagado en el nodo
         }]
         for ct in contacts:
             key = ct.get("public_key", "")
