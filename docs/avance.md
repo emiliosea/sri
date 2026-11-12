@@ -93,10 +93,13 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 ## Etapa 8 - Información ambiental: cuerpos de agua (12 nov)
 
 - Ríos, arroyos, canales, drenes, lagos, presas y estanques de **OpenStreetMap** (Overpass) en el área del terreno.
-- Colores: el relieve en **negro/blanco** según el tema (se probó gris -> rojo por altura) y el **azul queda solo
+- Colores: el relieve en **gris/blanco** según el tema (se probó gris -> rojo por altura) y el **azul queda solo
   para el agua**.
 - Marcadores **"~ AGUA | nombre"** en el 3D y en el mapa; franjas azules en el perfil donde la ruta cruza agua.
 - Análisis de la ruta: cruces exactos (intersección de segmentos) y cuerpos de agua a menos de 200 m.
+- Optimización: de ~1,250 cuerpos de agua (~30,000 puntos) solo se dibujan los importantes y los que cruza la ruta
+  (~50, ~600 puntos tras simplificar); el análisis solo se repite si cambia la ruta o el área, y el mapa de abajo
+  usa canvas. Dibujo del 3D: de ~6 ms a <1 ms por cuadro.
 - Ejemplo real (ruta en coche de 30 km): cruza el **Río Santa Catarina** dos veces y un arroyo sin nombre, y pasa
   cerca de Arroyo El Perdido, un dren, un lago y estanques.
 

@@ -35,14 +35,16 @@ los marcadores son los movimientos evaluados (triángulo rojo = alertó, círcul
 **Terreno** - vista 3D del área que cubre el nodo, la PC y la ruta. Se gira e inclina arrastrando, se acerca
 con la rueda; botones 1x/2x/4x para exagerar el relieve y "Vista inicial". Dos modos:
 - **Curvas + mapa** (por defecto): el mapa de calles en blanco y negro es el piso, con la ruta en rojo (igual que en la hoja Mapa), y encima
-  las **curvas de nivel** a su altura real, en **negro (modo claro) o blanco (modo oscuro)**; una de cada cinco
+  las **curvas de nivel** a su altura real, en **gris (modo claro) o blanco (modo oscuro)**; una de cada cinco
   es más gruesa. Los **cuerpos de agua** van en **azul**. (Con `CURVAS_MONO = false` en `index.html` vuelve la
   rampa gris -> rojo por altura.) El nodo y la PC tienen un poste punteado desde el mapa hasta su altura.
 - **Malla**: malla de alambre (90x90 puntos) en el mismo color y el agua encima.
 
 **Información ambiental (cuerpos de agua)** - ríos, arroyos, canales, drenes, lagos, presas y estanques de
-OpenStreetMap (consulta a Overpass; solo se envía el recuadro del área). Se ven en azul en el 3D, en el mapa de
-abajo y en el perfil, con marcadores **"~ AGUA | nombre"** para los que cruza la ruta y los que tienen nombre cerca.
+OpenStreetMap (consulta a Overpass; solo se envía el recuadro del área). Para no saturar la vista solo se dibujan
+los **importantes** (ríos, canales con nombre y lagos/presas/estanques de 2 ha o más), los que **cruza la ruta** y los
+que tienen nombre a menos de 200 m de ella; las líneas se simplifican al detalle visible. Se ven en azul en el 3D,
+en el mapa de abajo y en el perfil, con marcadores **"~ AGUA | nombre"**.
 Debajo del perfil se listan:
 - los cuerpos de agua que **cruza** la ruta (intersección exacta de la ruta con el río o el contorno del lago) y
   a qué distancia desde la PC; en el perfil aparecen como franjas azules;

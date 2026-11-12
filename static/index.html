@@ -1374,11 +1374,12 @@ async function actualizarTerreno(forzar) {
 }
 
 // Mapa plano (Leaflet, blanco y negro) del mismo recuadro que la malla, para ver proporciones
-let tPlano = null;
+let tPlano = null, planoLienzo = null;                 // el agua se dibuja en canvas (más rápido que SVG)
 const plano = { caja: null, ruta: null, nodo: null, pc: null, cursor: null, agua: null };
 function planoInit() {
   if (tPlano) return;
   tPlano = L.map('terrenoPlano', { zoomControl: false }).setView([25.66, -100.42], 13);
+  planoLienzo = L.canvas({ padding: 0.2 });
   L.control.zoom({ zoomInText: '+', zoomOutText: '-' }).addTo(tPlano);
   L.control.scale({ imperial: false }).addTo(tPlano);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(tPlano);
@@ -1392,16 +1393,20 @@ function actualizarPlano(ajustar) {
     plano.caja = L.rectangle([[s, w], [n, e]], { color: cvar('--fg'), weight: 1.5, dashArray: '6 6', fill: false, interactive: false }).addTo(tPlano);
     if (ajustar) tPlano.fitBounds([[s, w], [n, e]], { padding: [10, 10] });
   }
+  const llaveAgua = [aguaInfo, document.body.classList.contains('dark')];
+  if (!plano.llaveAgua || plano.llaveAgua[0] !== llaveAgua[0] || plano.llaveAgua[1] !== llaveAgua[1]) {
+  plano.llaveAgua = llaveAgua;
   quita('agua');
   if (agua) {
     const azul = cvar('--blue'), capas = [];
-    for (const f of agua) capas.push(f.tipo === 'area'
-      ? L.polygon(f.coords, { color: azul, weight: 1, fillColor: azul, fillOpacity: .35 }).bindTooltip(esc(nombreAgua(f)))
-      : L.polyline(f.coords, { color: azul, weight: f.clase === 'río' ? 4 : 2 }).bindTooltip(esc(nombreAgua(f))));
+    for (const f of aguaInfo.dibujo) capas.push(f.tipo === 'area'
+      ? L.polygon(f.coords, { renderer: planoLienzo, color: azul, weight: 1, fillColor: azul, fillOpacity: .35 }).bindTooltip(esc(nombreAgua(f)))
+      : L.polyline(f.coords, { renderer: planoLienzo, color: azul, weight: f.clase === 'río' ? 4 : 2 }).bindTooltip(esc(nombreAgua(f))));
     for (const m of aguaInfo.marcas) capas.push(L.marker([m.lat, m.lon], { icon: L.divIcon({ className: '',
       html: `<div class="aguaMarca">~ AGUA | <span>${esc(m.nombre)}</span></div>`, iconSize: null, iconAnchor: [0, 0] }),
       title: 'Cuerpo de agua' }));
     plano.agua = L.layerGroup(capas).addTo(tPlano);
+  }
   }
   quita('ruta');
   if (rutaCoords && rutaCoords.length > 1)
@@ -1468,7 +1473,7 @@ function alturaMalla(lat, lon) {
 // Cuerpos de agua (OpenStreetMap): se dibujan en azul en el 3D, el perfil y el mapa, y se analiza la ruta:
 //   qué ríos/arroyos cruza (a menos de 20 m) y cuáles pasan cerca (a menos de 200 m).
 // ---------------------------------------------------------------------------
-let agua = null, aguaClave = null, aguaInfo = { cruces: [], marcas: [] };
+let agua = null, aguaClave = null, aguaInfo = { cruces: [], marcas: [], dibujo: [] };
 const AGUA_CRUCE = 20, AGUA_CERCA = 200;
 
 async function cargarAgua(caja) {
@@ -1495,16 +1500,51 @@ async function cargarAgua(caja) {
 const normaNombre = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 const nombreAgua = f => f.nombre ? f.nombre : `${f.clase[0].toUpperCase()}${f.clase.slice(1)} sin nombre`;
 
+// Importantes: ríos, canales con nombre y lagos/presas/estanques de 2 ha o más. Además se muestran los
+//   que cruza la ruta y los que tienen nombre a menos de 200 m de ella; lo demás se omite.
+function aguaImportante(f) {
+  if (f.clase === 'río') return true;
+  if (f.tipo === 'area') return (f._ha || 0) >= 2;
+  return f.clase === 'canal' && !!f.nombre;
+}
+
+// Simplificación Douglas-Peucker (en metros) para dibujar solo el detalle que se alcanza a ver
+function simplificar(xy, ll, tol) {
+  if (xy.length < 3) return ll;
+  const keep = new Uint8Array(xy.length); keep[0] = keep[xy.length - 1] = 1;
+  const pila = [[0, xy.length - 1]];
+  while (pila.length) {
+    const [a, b] = pila.pop();
+    const [ax, ay] = xy[a], [bx, by] = xy[b], dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1;
+    let max = 0, k = -1;
+    for (let i = a + 1; i < b; i++) {
+      const d = Math.abs(dy * (xy[i][0] - ax) - dx * (xy[i][1] - ay)) / L;
+      if (d > max) { max = d; k = i; }
+    }
+    if (max > tol) { keep[k] = 1; pila.push([a, k], [k, b]); }
+  }
+  return ll.filter((_, i) => keep[i]);
+}
+
 function analizarAgua() {
   const caja = document.getElementById('ambiental');
-  aguaInfo = { cruces: [], marcas: [] };
+  // solo se recalcula si cambió el agua, el recuadro o la ruta (no en cada lectura del nodo)
+  if (aguaInfo.llave && aguaInfo.llave[0] === agua && aguaInfo.llave[1] === malla && aguaInfo.llave[2] === rutaCoords) return;
+  aguaInfo = { cruces: [], marcas: [], dibujo: [], llave: [agua, malla, rutaCoords] };
   if (!agua) return;
   // proyección local en metros (centro del área)
   const ref = malla ? [(malla.caja[0] + malla.caja[2]) / 2, (malla.caja[1] + malla.caja[3]) / 2] : agua[0]?.coords[0];
   if (!ref) { caja.innerHTML = '<h4>Información ambiental de la ruta</h4><div class="sub">No hay cuerpos de agua registrados en el área.</div>'; return; }
   const kx = 111320 * Math.cos(ref[0] * Math.PI / 180), ky = 110574;
   const xy = c => [(c[1] - ref[1]) * kx, (c[0] - ref[0]) * ky];
-  for (const f of agua) if (!f._xy) f._xy = f.coords.map(xy);
+  for (const f of agua) if (!f._xy) {
+    f._xy = f.coords.map(xy);
+    if (f.tipo === 'area') {                       // superficie (fórmula del área de Gauss), en hectáreas
+      let a2 = 0;
+      for (let i = 0, j = f._xy.length - 1; i < f._xy.length; j = i++) a2 += f._xy[j][0] * f._xy[i][1] - f._xy[i][0] * f._xy[j][1];
+      f._ha = Math.abs(a2) / 2 / 10000;
+    }
+  }
   const distSeg = (p, a, b) => {
     const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy;
     const t = L2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2)) : 0;
@@ -1570,14 +1610,20 @@ function analizarAgua() {
   // un mismo río con nombre en varios tramos: un solo cruce por cada paso (a más de 50 m del anterior)
   cruces.sort((a, b) => a.d0 - b.d0);
   aguaInfo.cruces = cruces.filter((c, i) => !cruces.slice(0, i).some(o => c.f.nombre && normaNombre(o.nombre) === normaNombre(c.nombre) && Math.abs(o.d0 - c.d0) < 100));
-  const lista = [...porNombre.values()];
+  const lista = [...porNombre.values()].filter(x => aguaImportante(x.f) || x.f.nombre || x.dist === 0);
+  const importantes = visibles.filter(aguaImportante);
+  const cercaConNombre = lista.filter(x => x.f.nombre && x.dist <= AGUA_CERCA).map(x => x.f);
+  aguaInfo.dibujo = [...new Set([...importantes, ...aguaInfo.cruces.map(c => c.f), ...cercaConNombre])];
+  // versión simplificada para dibujar (tolerancia ~ 1/1500 del lado del área)
+  const tol = malla ? Math.max(2, (aMetros(malla.caja[2], malla.caja[3])[0] - aMetros(malla.caja[0], malla.caja[1])[0]) / 1500) : 5;
+  for (const f of aguaInfo.dibujo) f._simp = simplificar(f._xy, f.coords, tol);
   // marcadores: cruces primero, luego lo cercano, luego lo grande con nombre (máx. 6, sin repetir nombre)
   const usados = new Set(), marcas = [];
   const add = (lat, lon, nombre) => { const k = normaNombre(nombre);
     if (marcas.length < 5 && !usados.has(k)) { usados.add(k); marcas.push({ lat, lon, nombre }); } };
   for (const c of aguaInfo.cruces) add(c.lat, c.lon, c.nombre);           // todo lo que cruza la ruta
   lista.filter(x => x.dist <= AGUA_CERCA && x.f.nombre).sort((a, b) => a.dist - b.dist).forEach(x => add(x.ll[0], x.ll[1], x.nombre));
-  visibles.filter(f => f.nombre).sort((a, b) => (b.tipo === 'area') - (a.tipo === 'area') || b.coords.length - a.coords.length)
+  importantes.filter(f => f.nombre).sort((a, b) => (b.tipo === 'area') - (a.tipo === 'area') || b.coords.length - a.coords.length)
       .forEach(f => { const c = f.coords.find(c => c[0] >= malla.caja[0] && c[0] <= malla.caja[2] && c[1] >= malla.caja[1] && c[1] <= malla.caja[3]) || f.coords[0];
                       add(c[0], c[1], nombreAgua(f)); });
   aguaInfo.marcas = marcas;
@@ -1585,10 +1631,10 @@ function analizarAgua() {
   // texto
   const fd = d => fmtDist(Math.round(d));
   let html = '<h4>Información ambiental de la ruta</h4>';
-  const nAreas = visibles.filter(f => f.tipo === 'area').length, nLin = visibles.length - nAreas;
-  const nombres = [...new Set(visibles.filter(f => f.nombre).map(f => f.nombre))];
-  html += `<div class="sub">En el área: ${nLin} ríos/arroyos/canales y ${nAreas} lagos, presas o estanques` +
-          (nombres.length ? ` (${nombres.slice(0, 5).map(esc).join(', ')}${nombres.length > 5 ? '...' : ''})` : '') + '. Fuente: OpenStreetMap.</div>';
+  const nombres = [...new Set(importantes.filter(f => f.nombre).map(f => f.nombre.trim()))];
+  html += `<div class="sub">En el área: ${importantes.length} cuerpos de agua importantes de ${visibles.length} registrados` +
+          (nombres.length ? ` (${nombres.slice(0, 5).map(esc).join(', ')}${nombres.length > 5 ? '...' : ''})` : '') +
+          '. Se muestran los importantes y los que cruza la ruta. Fuente: OpenStreetMap.</div>';
   if (!R.length) html += '<div class="sub">Traza la ruta (cinta Ruta) para ver qué cuerpos de agua cruza.</div>';
   else {
     const cerca = lista.filter(x => x.dist > AGUA_CRUCE && x.dist <= AGUA_CERCA).sort((a, b) => a.d - b.d);
@@ -1609,14 +1655,14 @@ function dibujarAgua(ctx, aPantalla) {
   const azul = cvar('--blue'), [s, w, n, e] = malla.caja;
   const fuera = c => c[0] < s || c[0] > n || c[1] < w || c[1] > e;
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  for (const f of agua) {
+  for (const f of aguaInfo.dibujo) {
     if (f._fuera === undefined || f._caja !== malla.caja) { f._fuera = f.coords.every(fuera); f._caja = malla.caja; }
     if (f._fuera) continue;
     // solo la parte dentro del recuadro (en la malla no hay recorte por el piso)
     if (f._parcial === undefined || f._caja2 !== malla.caja) { f._parcial = f.coords.some(fuera); f._caja2 = malla.caja; }
     ctx.beginPath();
     let dentroPrev = false;
-    for (const c of f.coords) {
+    for (const c of (f._simp || f.coords)) {
       const ok = !fuera(c);
       if (ok) { const q = aPantalla(c[0], c[1]); dentroPrev ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }
       dentroPrev = ok;
@@ -1763,9 +1809,10 @@ function dibujarMalla() {
     return [cx + xr * esc_, cy - (yr * ci + zz * si) * esc_, yr * si - zz * ci];   // [sx, sy, profundidad]
   };
   const fondo = cvar('--bg');
-  // Curvas y malla de un solo color (negro en modo claro, blanco en oscuro); con CURVAS_MONO = false
+  // Curvas y malla de un solo color (gris en modo claro, blanco en oscuro); con CURVAS_MONO = false
   // vuelve la rampa gris -> rojo por altura
-  const rampa = CURVAS_MONO ? [cvar('--fg')] : rampaAltura(ctx, 64);
+  const colorCurvas = document.body.classList.contains('dark') ? cvar('--fg') : cvar('--fg-3');
+  const rampa = CURVAS_MONO ? [colorCurvas] : rampaAltura(ctx, 64);
   const t = el => (el - lo) / Math.max(hi - lo, 1);
   const curvasModo = vista.modo === 'curvas';
   const pisoZ = lo;                                  // el mapa va a la altura más baja
@@ -1890,7 +1937,7 @@ function dibujarMalla() {
   const LX = 8, LY = 40, LW = 160;
   if (CURVAS_MONO && !curvasModo) {                   // malla: sin leyenda de líneas
   } else if (CURVAS_MONO) {                           // muestra de línea: delgada y gruesa
-    ctx.fillStyle = cvar('--fg'); ctx.fillRect(LX, LY + 2, LW / 2 - 6, 1.2); ctx.fillRect(LX + LW / 2 + 6, LY + 1.5, LW / 2 - 6, 2.2);
+    ctx.fillStyle = colorCurvas; ctx.fillRect(LX, LY + 2, LW / 2 - 6, 1.2); ctx.fillRect(LX + LW / 2 + 6, LY + 1.5, LW / 2 - 6, 2.2);
   } else {
     rampa.forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(LX + i * LW / rampa.length, LY, LW / rampa.length + 1, 8); });
     ctx.strokeStyle = cvar('--line'); ctx.lineWidth = 1; ctx.strokeRect(LX + .5, LY + .5, LW, 8);
@@ -2026,7 +2073,7 @@ function dibujarPerfil() {
     `de ${S.min.toFixed(0)} a ${S.max.toFixed(0)} m | pendiente máx. ~${S.pend.toFixed(0)} %`;
   // cruz y punto en el mapa al pasar el mouse
   const tip = document.getElementById('perfilTip');
-  if (perfilHover == null) { tip.style.display = 'none'; planoCursor(null); if (tPuntos.cursor) { tPuntos.cursor = null; dibujarMalla(); } return; }
+  if (perfilHover == null) { tip.style.display = 'none'; planoCursor(null); if (tPuntos.cursor) { tPuntos.cursor = null; redibujarMalla(); } return; }
   const d = (Math.min(Math.max(perfilHover, L), W - Rm) - L) / pw * S.total;
   const q = P.reduce((a, b) => Math.abs(b.d - d) < Math.abs(a.d - d) ? b : a);
   ctx.strokeStyle = cvar('--fg-3'); ctx.beginPath(); ctx.moveTo(X(q.d) + .5, T); ctx.lineTo(X(q.d) + .5, T + ph); ctx.stroke();
@@ -2036,7 +2083,7 @@ function dibujarPerfil() {
   tip.style.left = (X(q.d) + 12 + tip.offsetWidth > W ? X(q.d) - tip.offsetWidth - 12 : X(q.d) + 12) + 'px';
   tip.style.top = '6px';
   tPuntos.cursor = { lat: q.lat, lon: q.lon, e: q.e };
-  dibujarMalla();
+  redibujarMalla();
   planoCursor(q);
 }
 const perfilCv = document.getElementById('perfil');
