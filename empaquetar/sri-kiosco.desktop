@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SRI (pantalla completa)
+Comment=Interfaz de la estación SRI en pantalla completa
+Exec=/opt/sri/sri-kiosco
+Icon=applications-internet
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true

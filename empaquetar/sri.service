@@ -1,0 +1,26 @@
+[Unit]
+Description=SRI - Sistema de Respuesta Inmediata (seguimiento del nodo LoRa)
+After=network.target bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=sri
+Group=sri
+SupplementaryGroups=dialout bluetooth netdev
+Environment=SRI_DATOS=/var/lib/sri
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/sri/sri
+Restart=always
+RestartSec=5
+# no reiniciar en bucle infinito si falla al arrancar muchas veces seguidas
+StartLimitIntervalSec=300
+StartLimitBurst=20
+WorkingDirectory=/var/lib/sri
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=yes
+ReadWritePaths=/var/lib/sri
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+  if ! getent passwd sri >/dev/null; then
+    adduser --system --group --home /var/lib/sri --no-create-home --gecos "SRI" sri
+  fi
+  for g in dialout bluetooth netdev; do
+    getent group "$g" >/dev/null && adduser sri "$g" >/dev/null 2>&1 || true
+  done
+  mkdir -p /var/lib/sri
+  chown -R sri:sri /var/lib/sri
+  chmod 750 /var/lib/sri
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    systemctl enable sri.service >/dev/null 2>&1 || true
+    systemctl restart sri.service || true
+  fi
+fi
+exit 0

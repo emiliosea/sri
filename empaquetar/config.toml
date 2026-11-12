@@ -1,0 +1,17 @@
+# Configuración de SRI (estación). Después de cambiarla:  sudo systemctl restart sri
+#
+# La conexión que se elija en la interfaz (cinta Conexión) tiene prioridad sobre [nodo] y se recuerda.
+
+[nodo]
+# ble = Bluetooth, usb = cable, demo = nodos simulados
+conexion = "ble"
+# dirección Bluetooth del nodo (bluetoothctl devices) o nombre "MeshCore-RABANITO"
+direccion = "MeshCore-RABANITO"
+# puerto USB si conexion = "usb"
+puerto = "/dev/ttyACM0"
+firmware = "meshcore"
+
+[servidor]
+puerto = 5000
+# 127.0.0.1 = solo esta computadora. Para verla desde la red local: "0.0.0.0" (fase 2 agrega contraseña)
+escuchar = "127.0.0.1"

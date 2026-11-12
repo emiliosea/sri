@@ -1,0 +1,14 @@
+Package: sri
+Version: @VERSION@
+Architecture: @ARQ@
+Maintainer: emiliosea <emiliosea@proton.me>
+Installed-Size: @TAM@
+Depends: bluez, curl, adduser
+Recommends: chromium | firefox-esr | firefox, network-manager
+Section: misc
+Priority: optional
+Homepage: https://github.com/emiliosea/sri
+Description: SRI - Sistema de Respuesta Inmediata, Huasteca
+ Seguimiento de un nodo LoRa MeshCore (RABANITO): ubicación GPS, detector de
+ caídas y golpes, ruta, terreno, cuerpos de agua y clima. Incluye el servicio
+ (systemd) y una ventana de pantalla completa para la estación.

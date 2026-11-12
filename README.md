@@ -21,6 +21,7 @@ con elevación.
 | Terreno 3D (curvas de nivel sobre el mapa), alturas y perfil de la ruta | Funcionando (AWS Terrain Tiles, sin clave) |
 | Información ambiental: cuerpos de agua que cruza la ruta | Funcionando (OpenStreetMap) |
 | Clima en el nodo y avisos (tormenta, lluvia, viento, calor, luz del día) | Funcionando (Open-Meteo) |
+| Programa instalable para la estación (.deb, servicio y pantalla completa) | Fase 1 lista (x86_64); ver [plan](docs/plan-estacion.md) |
 | Radio | 915 MHz (banda permitida en México) |
 | Alertas por la malla LoRa a otros nodos | Pendiente |
 
@@ -50,13 +51,17 @@ Abrir http://localhost:5000. Sin opciones, `server.py` usa la última conexión 
 | [docs/firmware.md](docs/firmware.md) | Cambios a MeshCore, compilar y flashear |
 | [docs/conexion.md](docs/conexion.md) | USB y Bluetooth en Linux, problemas resueltos |
 | [docs/interfaz.md](docs/interfaz.md) | Uso de la interfaz, ruta, calibración, datos y API |
+| [docs/plan-estacion.md](docs/plan-estacion.md) | Plan para la estación al aire libre (nativo y sin internet) |
+| [docs/instalacion.md](docs/instalacion.md) | Construir, instalar y operar el programa en la estación |
 
 ## Estructura del repositorio
 
 ```
 server.py                 Servidor web (Flask) y API
 meshcore_source.py        Conexión con el nodo MeshCore (USB / Bluetooth)
+sri_config.py             Rutas de datos, configuración y guardado seguro
 static/index.html         Interfaz web (una sola página; Leaflet en static/vendor/)
+empaquetar/               Construcción del programa (PyInstaller) y del paquete .deb, servicio systemd
 firmware/
   rabanito-acelerometro.patch               Cambios sobre MeshCore v1.18.0
   RABANITO-meshcore-v1.18.0-rabanito-ble.uf2  Firmware Bluetooth listo para flashear

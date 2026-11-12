@@ -17,7 +17,9 @@ import time
 
 from flask import Flask, jsonify, send_from_directory
 
-app = Flask(__name__, static_folder="static")
+import sri_config as cfg
+
+app = Flask(__name__, static_folder=cfg.STATIC)
 
 # Estado compartido entre la conexión y la web
 state = {"mode": None, "connected": False, "error": None, "my_node": None}
@@ -90,11 +92,7 @@ class LastSeen:
             self._data = {}
 
     def _save(self):
-        self._os.makedirs(self._os.path.dirname(self.path), exist_ok=True)
-        tmp = self.path + ".tmp"
-        with open(tmp, "w") as f:
-            self._json.dump(self._data, f, indent=2)
-        self._os.replace(tmp, self.path)  # escritura atómica: no se corrompe si se corta
+        cfg.guardar_json(self.path, self._data, indent=2)   # atómica: no se corrompe si se corta la luz
 
     def update(self, nodes):
         """Guarda las posiciones nuevas y agrega 'last_pos' a cada nodo."""
@@ -616,7 +614,7 @@ class DemoSource:
 
 @app.route("/")
 def index():
-    resp = send_from_directory("static", "index.html")
+    resp = send_from_directory(cfg.STATIC, "index.html")
     resp.headers["Cache-Control"] = "no-cache"  # que el navegador siempre cargue la versión nueva
     return resp
 
@@ -666,9 +664,7 @@ def make_source(mode, target):
 def save_connection(mode, target):
     import json
     import os
-    os.makedirs(os.path.dirname(CONN_FILE), exist_ok=True)
-    with open(CONN_FILE, "w") as f:
-        json.dump({"mode": mode, "target": target}, f)
+    cfg.guardar_json(CONN_FILE, {"mode": mode, "target": target})
 
 
 def load_connection():
@@ -704,8 +700,7 @@ def log_impact(imp):
     rec = {"recibido": int(time.time()), "tipo": imp.get("type"), "pico_g": imp.get("peak_g"),
            "reposo_g": imp.get("rest_g"), "dif_g": imp.get("diff_g"),
            "hora_nodo": imp.get("time"), "cuenta": imp.get("count"), "posicion": pos}
-    with open(impact_log_path(), "a", encoding="utf-8") as f:
-        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    cfg.agregar_linea(impact_log_path(), json.dumps(rec, ensure_ascii=False))
     print(f"*** {str(imp.get('type')).upper()} detectado: pico {imp.get('peak_g')} g, "
           f"diferencia {imp.get('diff_g')} g ***", flush=True)
 
@@ -821,8 +816,7 @@ def api_cal_apply():
     if any(not 0.5 <= g <= 2.0 for g in gan) or any(abs(o) > 5 for o in off):
         return jsonify({"ok": False, "error": f"Resultado fuera de rango (offset {off}, ganancia {gan}); repite las caras"}), 400
     cal = {"offset": off, "ganancia": gan, "fecha": int(time.time()), "caras": dict(_cal_caras)}
-    with open(cal_path(), "w", encoding="utf-8") as f:
-        json.dump(cal, f, indent=2)
+    cfg.guardar_json(cal_path(), cal, indent=2)
     source.calibration = cal_string(cal)
     r = source.impact_cmd("acc_cal", source.calibration)
     if not r.get("ok"):
@@ -949,8 +943,7 @@ def load_lugares():
 
 def save_lugares(lugares):
     import json
-    with open(lugares_path(), "w", encoding="utf-8") as f:
-        json.dump(lugares, f, indent=1)
+    cfg.guardar_json(lugares_path(), lugares, indent=1)
 
 
 SIMILITUD_MIN = 0.25    # coincidencia mínima para reconocer un lugar
@@ -1111,7 +1104,7 @@ OVERPASS_URLS = ["https://overpass-api.de/api/interpreter",          # principal
                  "https://overpass.kumi.systems/api/interpreter",
                  "https://overpass.private.coffee/api/interpreter"]
 _agua_cache = {}
-AGUA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "agua")   # caché en disco
+AGUA_DIR = cfg.ruta_datos("agua")   # caché en disco
 _CLASE_AGUA = {"river": "río", "stream": "arroyo", "canal": "canal", "drain": "dren", "ditch": "zanja",
                "lake": "lago", "reservoir": "presa", "pond": "estanque", "lagoon": "laguna", "oxbow": "laguna",
                "basin": "estanque", "wastewater": "laguna de tratamiento"}
@@ -1191,9 +1184,7 @@ def api_terrain_water():
         _agua_cache.pop(next(iter(_agua_cache)))
     _agua_cache[clave] = res
     try:
-        os.makedirs(AGUA_DIR, exist_ok=True)
-        with open(archivo, "w", encoding="utf-8") as f:
-            json.dump(res, f)
+        cfg.guardar_json(archivo, res)
     except OSError:
         pass
     return jsonify(res)
@@ -1437,19 +1428,31 @@ def main():
     parser.add_argument("--demo", action="store_true", help="Usar nodos simulados")
     parser.add_argument("--meshtastic", action="store_true",
                         help="El nodo tiene firmware Meshtastic (por defecto: MeshCore)")
-    parser.add_argument("--http-port", type=int, default=5000)
+    parser.add_argument("--http-port", type=int, default=cfg.conf("servidor", "puerto", 5000))
+    parser.add_argument("--host", default=cfg.conf("servidor", "escuchar", "127.0.0.1"),
+                        help="Dirección donde escucha la interfaz (127.0.0.1 = solo esta computadora)")
+    parser.add_argument("--version", action="version", version=f"SRI {cfg.VERSION}")
     args = parser.parse_args()
 
+    print(f"SRI {cfg.VERSION} | datos: {cfg.DATOS} | configuración: {cfg.CONFIG_RUTA or '(ninguna)'}", flush=True)
     global last_seen
-    import os
-    data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    data_dir = cfg.DATOS
     last_seen = LastSeen(os.path.join(data_dir, "last_seen_demo.json" if args.demo else "last_seen.json"))
 
     global CONN_FILE
     CONN_FILE = os.path.join(data_dir, "connection.json")
-    # Sin --port/--ble/--demo: usar la última conexión elegida en la interfaz
+    # Sin --port/--ble/--demo: la última conexión elegida en la interfaz y, si no hay, la configuración
     if not (args.demo or args.ble or args.port):
+        con = cfg.conf("nodo", "conexion")
         saved = load_connection()
+        if not saved and con == "demo":
+            args.demo = True
+        elif not saved and con == "ble" and cfg.conf("nodo", "direccion"):
+            saved = {"mode": "ble", "target": cfg.conf("nodo", "direccion")}
+        elif not saved and con == "usb":
+            saved = {"mode": "serial", "target": cfg.conf("nodo", "puerto")}
+        if not args.meshtastic and cfg.conf("nodo", "firmware") == "meshtastic":
+            args.meshtastic = True
         if saved:
             print(f"Usando la última conexión guardada: {saved['mode']} {saved.get('target') or ''}", flush=True)
             if saved["mode"] == "ble":
@@ -1468,8 +1471,8 @@ def main():
         source = make_source(state["mode"], args.ble or args.port)
         print(f"Firmware: {FIRMWARE}", flush=True)
 
-    print(f"Abre http://localhost:{args.http_port}")
-    app.run(host="127.0.0.1", port=args.http_port, debug=False)
+    print(f"Abre http://localhost:{args.http_port}", flush=True)
+    app.run(host=args.host, port=args.http_port, debug=False)
 
 
 if __name__ == "__main__":

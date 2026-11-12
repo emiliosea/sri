@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+# Los datos en /var/lib/sri se conservan al desinstalar; "purge" los borra.
+if [ "$1" = "purge" ]; then
+  rm -rf /var/lib/sri
+  getent passwd sri >/dev/null && deluser --system sri >/dev/null 2>&1 || true
+fi
+[ -d /run/systemd/system ] && systemctl daemon-reload || true
+exit 0

@@ -15,3 +15,6 @@ firmware/*.log
 # --- Configuración local del editor / Claude ---
 .claude/
 fotos-terreno/
+empaquetar/.venv-build/
+empaquetar/build/
+empaquetar/dist/

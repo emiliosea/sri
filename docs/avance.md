@@ -14,6 +14,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 7. Terreno y elevación | 10-11 nov 2026 | Relieve 3D (curvas + mapa), alturas y perfil de la ruta |
 | 8. Información ambiental | 12 nov 2026 | Cuerpos de agua en el terreno y cuáles cruza la ruta |
 | 9. Clima | 12 nov 2026 | Clima en el nodo (Open-Meteo) con avisos para salir a campo |
+| 10. Programa para la estación (fase 1) | 12 nov 2026 | Paquete .deb con servicio systemd y pantalla completa |
 
 ---
 
@@ -113,6 +114,17 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
   posible crecida.
 - Aviso de **GPS apagado en el nodo** con botón para encenderlo (el GPS de RABANITO apareció apagado, probablemente
   por 4 pulsaciones del botón).
+
+## Etapa 10 - Programa para la estación, fase 1 (12 nov)
+
+- Plan para la estación al aire libre: [plan-estacion.md](plan-estacion.md) (mini PC x86_64, posible Raspberry
+  Pi, pantalla y red, sin internet o intermitente).
+- El programa se empaqueta con **PyInstaller** (Python incluido) en un **.deb**: servicio **systemd** que arranca
+  solo y se reinicia si falla, usuario sin privilegios, datos en `/var/lib/sri`, configuración en
+  `/etc/sri/config.toml`, y ventana de **pantalla completa** que se reabre si se cierra.
+- Guardado seguro ante cortes de luz (escritura atómica con `fsync`).
+- Probado: el programa empaquetado se conectó a RABANITO por Bluetooth y respondió el ping (283 ms).
+- Guía: [instalacion.md](instalacion.md).
 
 ---
 
