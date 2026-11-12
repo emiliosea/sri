@@ -13,6 +13,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 6. Ruta, interfaz tipo Excel y GitHub | 10 nov 2026 | Ruta automática, eventos en CSV, repositorio público |
 | 7. Terreno y elevación | 10-11 nov 2026 | Relieve 3D (curvas + mapa), alturas y perfil de la ruta |
 | 8. Información ambiental | 12 nov 2026 | Cuerpos de agua en el terreno y cuáles cruza la ruta |
+| 9. Clima | 12 nov 2026 | Clima en el nodo (Open-Meteo) con avisos para salir a campo |
 
 ---
 
@@ -102,6 +103,16 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
   usa canvas. Dibujo del 3D: de ~6 ms a <1 ms por cuadro.
 - Ejemplo real (ruta en coche de 30 km): cruza el **Río Santa Catarina** dos veces y un arroyo sin nombre, y pasa
   cerca de Arroyo El Perdido, un dren, un lago y estanques.
+
+## Etapa 9 - Clima en el nodo (12 nov)
+
+- Tarjeta **Clima en el nodo** con datos de **Open-Meteo** (gratis, sin clave) para la última posición del nodo:
+  condiciones actuales, próximas 12 horas, sol y UV.
+- **Avisos** calculados en el servidor: tormenta, lluvia, ráfagas, calor/frío, niebla, poca luz o noche, UV alto.
+- Se combina con la información ambiental: si se espera lluvia y la ruta cruza ríos o arroyos, aviso de
+  posible crecida.
+- Aviso de **GPS apagado en el nodo** con botón para encenderlo (el GPS de RABANITO apareció apagado, probablemente
+  por 4 pulsaciones del botón).
 
 ---
 

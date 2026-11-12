@@ -81,6 +81,22 @@ Monterrey (534 m) y el Cerro de la Silla (~1,750 m).
   huella de las redes Wi-Fi; después el lugar se reconoce solo. Todo queda en la computadora
   (`data/lugares_wifi.json`).
 
+## Clima en el nodo
+
+Tarjeta **Clima en el nodo** en el panel lateral (datos de [Open-Meteo](https://open-meteo.com), gratis y sin
+clave), para la última posición del nodo:
+- temperatura, sensación térmica, humedad, mínima/máxima del día, viento y ráfagas con su dirección, nubes,
+  visibilidad, salida y puesta del sol e índice UV;
+- las próximas 12 horas: temperatura y probabilidad de lluvia;
+- **avisos para salir a campo**: tormenta eléctrica, lluvia (probable, ahora o fuerte), ráfagas de viento,
+  calor o frío por sensación térmica, niebla, poca luz del día (90 min antes de la puesta) o de noche, UV alto;
+- si se espera lluvia y la ruta **cruza cuerpos de agua**, aviso en rojo de posible crecida (también en la
+  información ambiental de la hoja Terreno);
+- la temperatura del sensor del nodo para comparar (está dentro de la carcasa y suele marcar más).
+
+Se envían a Open-Meteo las coordenadas redondeadas a ~1 km; la consulta se reusa 10 min. La temperatura y el
+estado del cielo también aparecen en la barra de estado.
+
 ## Calibración del acelerómetro
 
 Cinta **Detector -> Calibrar acelerómetro**: poner el nodo quieto sobre cada una de sus 6 caras, "Medir cara" y
@@ -105,6 +121,7 @@ luego "Aplicar". Se guarda en `data/calibracion.json` y se reenvía al nodo en c
 | `GET /api/info` | Información del dispositivo |
 | `POST /api/ping` | Ping al nodo |
 | `GET /api/acel?segundos=60` | Historial de aceleración (gráfica) |
+| `GET /api/clima?lat=..&lon=..` | Clima actual, próximas 12 h, datos del día y avisos (Open-Meteo) |
 | `POST /api/gps` `{"encendido": true}` | Enciende o apaga el GPS del nodo (el nodo guarda el ajuste) |
 | `GET /api/impacto/historial` | Eventos guardados |
 | `POST /api/impacto/reset`, `/api/impacto/umbral` | Borrar alarma / cambiar dif. mínima |

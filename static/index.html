@@ -293,6 +293,22 @@
   #pingResult:empty, #error:empty { display: none; }
   #detector .drow { display: flex; align-items: center; gap: 8px; font-size: 13px; }
   .card.alarma { border-color: var(--red); }
+  #clima .cl1 { display: flex; align-items: baseline; gap: 8px; }
+  #clima .cl1 b { font-size: 22px; }
+  #clima .cl1 span { font-size: 13px; }
+  #clima .avisos { margin: 6px 0 2px; }
+  #clima .av { font-size: 12px; margin-top: 2px; }
+  #clima .av.alto { color: var(--red); font-weight: 700; }
+  #clima .av.medio { color: var(--fg); }
+  #clima .horas { overflow-x: auto; margin-top: 6px; }
+  #clima .horas table { border-collapse: collapse; font-size: 10px; }
+  #clima .horas td { padding: 1px 4px; text-align: center; border-left: 1px solid var(--line); white-space: nowrap; }
+  #clima .horas tr td:first-child { border-left: none; text-align: left; color: var(--fg-3); }
+  #clima .horas .ll { color: var(--blue); }
+  #clima .horas .tor { color: var(--red); font-weight: 700; }
+  #climaCard.aviso { border-color: var(--red); }
+  #climaCard.aviso .chdr { background: var(--red); color: #fff; }
+  #ambiental .riesgo { color: var(--red); font-weight: 700; margin-top: 4px; }
   .card.alarma .chdr { background: var(--red); color: #fff; }
   #ruta.alerta { border-color: var(--red); }
   #ruta.alerta .chdr { background: var(--red); color: #fff; }
@@ -503,6 +519,10 @@
       <div class="chdr">Ubicación</div>
       <div id="mine" class="coordbox"></div>
     </section>
+    <section class="card" id="climaCard" style="display:none">
+      <div class="chdr">Clima en el nodo</div>
+      <div class="cbody" id="clima"></div>
+    </section>
     <section class="card" id="ruta" style="display:none">
       <div class="chdr">Ruta</div>
       <div class="cbody">
@@ -586,6 +606,7 @@
   <span id="sbEstado">Listo</span>
   <span id="connSummary">--</span>
   <span id="sbGps"></span>
+  <span id="sbClima"></span>
   <span id="sbBat"></span>
   <span id="sbAcel"></span>
   <span id="sbUmbral"></span>
@@ -753,6 +774,67 @@ function renderMine(status) {
   tick();
 }
 
+// ---------------------------------------------------------------------------
+// Clima en la ubicación del nodo (Open-Meteo vía /api/clima). Se pide al cambiar de lugar (~1 km)
+//   o cada 10 min. Los avisos (tormenta, lluvia, viento, calor/frío, niebla, luz) vienen del servidor.
+// ---------------------------------------------------------------------------
+let clima = null, climaClave = null, climaPidiendo = false, climaHora = 0;
+async function actualizarClima(forzar) {
+  const me = nodoPrincipal();
+  const p = me && posOf(me);
+  const card = document.getElementById('climaCard');
+  if (!p) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const clave = `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`;
+  if (!forzar && clave === climaClave && Date.now() - climaHora < 600000) { renderClima(); return; }
+  if (climaPidiendo) return;
+  climaPidiendo = true;
+  try {
+    const r = await (await fetch(`/api/clima?lat=${p.lat}&lon=${p.lon}`)).json();
+    if (!r.ok) throw new Error(r.error);
+    clima = r; climaClave = clave; climaHora = Date.now();
+    if (agua) { aguaInfo.llave = null; analizarAgua(); }       // el aviso de agua + lluvia depende del clima
+  } catch (err) {
+    climaClave = clave; climaHora = Date.now() - 540000;       // reintentar en ~1 min
+    document.getElementById('clima').innerHTML = `<div class="err">${esc(String(err.message || err))}</div>`;
+  } finally { climaPidiendo = false; }
+  renderClima();
+}
+
+// ¿Se espera lluvia o tormenta en las próximas 12 h? (para el aviso de cruces de agua)
+function climaLluvioso() {
+  if (!clima) return null;
+  const a = clima.avisos.find(x => /Tormenta|Lluvia|Lloviendo/.test(x.texto));
+  return a ? a.texto : null;
+}
+
+function renderClima() {
+  const el = document.getElementById('clima'), card = document.getElementById('climaCard');
+  if (!clima) { el.innerHTML = '<div class="sub">Consultando el clima...</div>'; return; }
+  const a = clima.actual, d = clima.dia, hh = t => t.slice(11, 16);
+  const me = nodoPrincipal();
+  const vis = a.visibilidad_m == null ? '' : a.visibilidad_m >= 10000 ? ` | visibilidad ${Math.round(a.visibilidad_m / 1000)} km` : ` | visibilidad ${(a.visibilidad_m / 1000).toFixed(1)} km`;
+  const lluvioso = climaLluvioso(), nCruces = aguaInfo.cruces.length;
+  const avisos = [...clima.avisos];
+  if (lluvioso && nCruces) avisos.unshift({ nivel: 'alto', texto: `La ruta cruza ${nCruces} cuerpo${nCruces > 1 ? 's' : ''} de agua y se espera lluvia: posible crecida` });
+  card.classList.toggle('aviso', avisos.some(x => x.nivel === 'alto'));
+  const horas = clima.horas.slice(0, 12);
+  el.innerHTML = `
+    <div class="cl1"><b>${a.temp_c.toFixed(0)} °C</b><span>${esc(a.descripcion)}</span></div>
+    <div class="sub">Sensación ${a.sensacion_c.toFixed(0)} °C | humedad ${a.humedad} % | hoy ${d.min_c.toFixed(0)}-${d.max_c.toFixed(0)} °C</div>
+    <div class="sub">Viento ${a.viento_kmh.toFixed(0)} km/h del ${a.viento_de}, ráfagas ${a.rafagas_kmh.toFixed(0)} km/h | nubes ${a.nubes} %${vis}</div>
+    <div class="sub">Sol: sale ${hh(d.salida)}, se pone ${hh(d.puesta)} | UV máx. ${d.uv_max == null ? '--' : d.uv_max.toFixed(0)}</div>
+    ${avisos.length ? '<div class="avisos">' + avisos.map(x => `<div class="av ${x.nivel}">[!] ${esc(x.texto)}</div>`).join('') + '</div>' : ''}
+    <div class="horas"><table>
+      <tr><td>hora</td>${horas.map(h => `<td>${hh(h.hora).slice(0, 2)}</td>`).join('')}</tr>
+      <tr><td>°C</td>${horas.map(h => `<td class="${h.codigo >= 95 ? 'tor' : ''}">${h.temp_c.toFixed(0)}</td>`).join('')}</tr>
+      <tr><td>lluvia</td>${horas.map(h => `<td class="ll">${h.prob_lluvia == null ? '-' : h.prob_lluvia + '%'}</td>`).join('')}</tr>
+    </table></div>
+    <div class="sub">Open-Meteo, para ${clima.lat.toFixed(2)}, ${clima.lon.toFixed(2)} (~1 km)` +
+    `${me && me.temperature != null ? ` | sensor del nodo: ${me.temperature.toFixed(1)} °C` : ''}</div>`;
+  document.getElementById('sbClima').textContent = `${a.temp_c.toFixed(0)} °C ${a.descripcion}`;
+}
+
 // Botón "Encender GPS" del aviso (el recuadro se redibuja en cada lectura, por eso va por delegación)
 let gpsEncendiendo = false;
 document.getElementById('mine').addEventListener('click', async e => {
@@ -891,6 +973,7 @@ function render(status) {
   renderDetector(status);
   renderBars(status);
   renderMine(status);
+  actualizarClima();
   autoRuta();
   loadInfo(status);
   renderDetail();
@@ -1670,6 +1753,8 @@ function analizarAgua() {
       ? `<div><span class="agua">La ruta cruza ${aguaInfo.cruces.length} cuerpo${aguaInfo.cruces.length > 1 ? 's' : ''} de agua:</span></div><ul>` +
         aguaInfo.cruces.map(c => `<li>${esc(c.nombre)} (${esc(c.f.clase)}) a ${fd(c.d0)} desde la PC</li>`).join('') + '</ul>'
       : '<div>La ruta no cruza cuerpos de agua registrados.</div>';
+    const ll = climaLluvioso();
+    if (ll && aguaInfo.cruces.length) html += `<div class="riesgo">[!] Clima: ${esc(ll)}. Con lluvia los arroyos y ríos que cruza la ruta pueden crecer; cruzar con precaución.</div>`;
     if (cerca.length) html += `<div>Pasa cerca (a menos de ${AGUA_CERCA} m) de:</div><ul>` +
       cerca.slice(0, 10).map(x => `<li>${esc(x.nombre)} (${esc(x.f.clase)}): a ${Math.round(x.dist)} m, en el km ${(x.d / 1000).toFixed(1)}</li>`).join('') +
       (cerca.length > 10 ? `<li>y ${cerca.length - 10} más</li>` : '') + '</ul>';

@@ -1199,6 +1199,126 @@ def api_terrain_water():
     return jsonify(res)
 
 
+# ---------------------------------------------------------------------------
+# Clima (Open-Meteo, gratis y sin clave). Se envían las coordenadas redondeadas a 0.01 grados (~1 km).
+#   Se guarda 10 min por punto. Los avisos se calculan aquí para usarlos igual en toda la interfaz.
+# ---------------------------------------------------------------------------
+OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
+_clima_cache = {}
+CODIGOS_WMO = {
+    0: "Despejado", 1: "Mayormente despejado", 2: "Parcialmente nublado", 3: "Nublado",
+    45: "Niebla", 48: "Niebla con escarcha", 51: "Llovizna ligera", 53: "Llovizna", 55: "Llovizna intensa",
+    56: "Llovizna helada", 57: "Llovizna helada intensa", 61: "Lluvia ligera", 63: "Lluvia moderada",
+    65: "Lluvia fuerte", 66: "Lluvia helada", 67: "Lluvia helada fuerte", 71: "Nevada ligera", 73: "Nevada",
+    75: "Nevada fuerte", 77: "Granizo fino", 80: "Chubascos ligeros", 81: "Chubascos", 82: "Chubascos fuertes",
+    85: "Chubascos de nieve", 86: "Chubascos de nieve fuertes", 95: "Tormenta eléctrica",
+    96: "Tormenta con granizo", 99: "Tormenta con granizo fuerte",
+}
+_RUMBOS = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"]
+
+
+def _avisos_clima(cur, horas, dia):
+    """Avisos para una respuesta en campo: tormenta, lluvia, viento, calor/frío, niebla, luz del día, UV."""
+    av = []
+    hh = lambda t: t[11:16]
+    tormenta = next((h for h in horas if h["codigo"] >= 95), None)
+    if cur["codigo"] >= 95:
+        av.append(("alto", "Tormenta eléctrica ahora"))
+    elif tormenta:
+        av.append(("alto", f"Tormenta eléctrica prevista a las {hh(tormenta['hora'])}"))
+    fuerte = next((h for h in horas if (h["lluvia_mm"] or 0) >= 7.6), None)
+    probable = next((h for h in horas if (h["prob_lluvia"] or 0) >= 60 or (h["lluvia_mm"] or 0) >= 2), None)
+    if fuerte:
+        av.append(("alto", f"Lluvia fuerte prevista a las {hh(fuerte['hora'])} ({fuerte['lluvia_mm']:.1f} mm/h)"))
+    elif (cur["lluvia_mm"] or 0) > 0:
+        av.append(("medio", f"Lloviendo ahora ({cur['lluvia_mm']:.1f} mm)"))
+    elif probable:
+        av.append(("medio", f"Lluvia probable a partir de las {hh(probable['hora'])} ({probable['prob_lluvia'] or 0} %)"))
+    rafaga = max([cur["rafagas_kmh"] or 0] + [h["rafagas_kmh"] or 0 for h in horas])
+    if rafaga >= 60:
+        av.append(("alto", f"Ráfagas de viento de hasta {rafaga:.0f} km/h"))
+    elif rafaga >= 40:
+        av.append(("medio", f"Ráfagas de viento de hasta {rafaga:.0f} km/h"))
+    st = cur["sensacion_c"]
+    if st is not None and st >= 38:
+        av.append(("alto", f"Calor extremo: sensación de {st:.0f} °C"))
+    elif st is not None and st >= 32:
+        av.append(("medio", f"Calor: sensación de {st:.0f} °C"))
+    elif st is not None and st <= 0:
+        av.append(("alto", f"Frío intenso: sensación de {st:.0f} °C"))
+    elif st is not None and st <= 8:
+        av.append(("medio", f"Frío: sensación de {st:.0f} °C"))
+    if cur["codigo"] in (45, 48) or (cur["visibilidad_m"] is not None and cur["visibilidad_m"] < 1000):
+        av.append(("medio", "Visibilidad baja (niebla)"))
+    if dia.get("puesta"):
+        ahora, puesta = cur["hora"], dia["puesta"]
+        if not cur["es_de_dia"]:
+            av.append(("medio", f"Es de noche (amanece a las {hh(dia['salida_manana'] or dia['salida'])})"))
+        else:
+            from datetime import datetime
+            m = (datetime.fromisoformat(puesta) - datetime.fromisoformat(ahora)).total_seconds() / 60
+            if 0 <= m <= 90:
+                av.append(("medio", f"Quedan ~{m:.0f} min de luz (puesta del sol {hh(puesta)})"))
+    if (dia.get("uv_max") or 0) >= 8:
+        av.append(("medio", f"Índice UV muy alto hoy ({dia['uv_max']:.0f})"))
+    return [{"nivel": n, "texto": t} for n, t in av]
+
+
+@app.route("/api/clima")
+def api_weather():
+    """?lat=..&lon=.. -> clima actual, próximas 12 h, datos del día y avisos (Open-Meteo)."""
+    import json
+    import urllib.parse
+    import urllib.request
+    from flask import request
+    try:
+        lat, lon = round(float(request.args["lat"]), 2), round(float(request.args["lon"]), 2)
+    except (KeyError, ValueError):
+        return jsonify({"ok": False, "error": "Faltan lat y lon"}), 400
+    clave = (lat, lon)
+    c = _clima_cache.get(clave)
+    if c and time.time() - c[0] < 600:
+        return jsonify(c[1])
+    q = {
+        "latitude": lat, "longitude": lon, "timezone": "America/Monterrey", "forecast_hours": 12, "forecast_days": 2,
+        "current": "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,"
+                   "cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility",
+        "hourly": "temperature_2m,precipitation_probability,precipitation,weather_code,wind_gusts_10m",
+        "daily": "sunrise,sunset,uv_index_max,precipitation_sum,temperature_2m_max,temperature_2m_min",
+    }
+    try:
+        req = urllib.request.Request(f"{OPEN_METEO}?{urllib.parse.urlencode(q)}",
+                                     headers={"User-Agent": "rastreador-meshcore/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = json.load(r)
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"ok": False, "error": f"No se pudo consultar Open-Meteo ({type(ex).__name__})"}), 502
+    k = d["current"]
+    cur = {"hora": k["time"], "temp_c": k["temperature_2m"], "sensacion_c": k["apparent_temperature"],
+           "humedad": k["relative_humidity_2m"], "codigo": k["weather_code"],
+           "descripcion": CODIGOS_WMO.get(k["weather_code"], "?"), "es_de_dia": bool(k["is_day"]),
+           "lluvia_mm": k["precipitation"], "nubes": k["cloud_cover"], "viento_kmh": k["wind_speed_10m"],
+           "rafagas_kmh": k["wind_gusts_10m"], "viento_dir": k["wind_direction_10m"],
+           "viento_de": _RUMBOS[round((k["wind_direction_10m"] or 0) / 45) % 8], "visibilidad_m": k.get("visibility")}
+    h = d["hourly"]
+    horas = [{"hora": h["time"][i], "temp_c": h["temperature_2m"][i], "prob_lluvia": h["precipitation_probability"][i],
+              "lluvia_mm": h["precipitation"][i], "codigo": h["weather_code"][i],
+              "descripcion": CODIGOS_WMO.get(h["weather_code"][i], "?"), "rafagas_kmh": h["wind_gusts_10m"][i]}
+             for i in range(len(h["time"]))]
+    dd = d["daily"]
+    dia = {"salida": dd["sunrise"][0], "puesta": dd["sunset"][0],
+           "salida_manana": dd["sunrise"][1] if len(dd["sunrise"]) > 1 else None,
+           "uv_max": dd["uv_index_max"][0], "lluvia_total_mm": dd["precipitation_sum"][0],
+           "max_c": dd["temperature_2m_max"][0], "min_c": dd["temperature_2m_min"][0]}
+    res = {"ok": True, "lat": lat, "lon": lon, "elevacion_m": d.get("elevation"), "actual": cur, "horas": horas,
+           "dia": dia, "avisos": _avisos_clima(cur, horas, dia), "consultado": int(time.time()),
+           "fuente": "Open-Meteo (open-meteo.com)"}
+    if len(_clima_cache) > 100:
+        _clima_cache.pop(next(iter(_clima_cache)))
+    _clima_cache[clave] = (time.time(), res)
+    return jsonify(res)
+
+
 @app.route("/api/elevacion", methods=["POST"])
 def api_elevation():
     """Body: {"puntos": [[lat, lon], ...]} (máx. 500). Devuelve la altura de cada punto en metros."""

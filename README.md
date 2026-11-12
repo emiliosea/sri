@@ -20,6 +20,7 @@ con elevación.
 | Ruta desde la PC hasta el nodo | Funcionando (ubicación de la PC por lugares Wi-Fi) |
 | Terreno 3D (curvas de nivel sobre el mapa), alturas y perfil de la ruta | Funcionando (AWS Terrain Tiles, sin clave) |
 | Información ambiental: cuerpos de agua que cruza la ruta | Funcionando (OpenStreetMap) |
+| Clima en el nodo y avisos (tormenta, lluvia, viento, calor, luz del día) | Funcionando (Open-Meteo) |
 | Radio | 915 MHz (banda permitida en México) |
 | Alertas por la malla LoRa a otros nodos | Pendiente |
 
@@ -71,4 +72,5 @@ requirements.txt          Dependencias (requirements.lock: versiones exactas pro
 
 GPL-3.0 (ver [LICENSE](LICENSE)). El firmware parte de [MeshCore](https://github.com/meshcore-dev/MeshCore) (MIT)
 y la interfaz usa [Leaflet](https://leafletjs.com) (BSD-2),
-mapas y cuerpos de agua de © OpenStreetMap (ODbL) y elevación de AWS Terrain Tiles.
+mapas y cuerpos de agua de © OpenStreetMap (ODbL), elevación de AWS Terrain Tiles y clima de
+[Open-Meteo](https://open-meteo.com) (CC BY 4.0).
