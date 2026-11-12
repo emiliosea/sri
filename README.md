@@ -18,7 +18,8 @@ con elevación.
 | Detector de caídas/golpes (banco de 5 s, pico - reposo) | Funcionando; 35 eventos de prueba |
 | Acelerómetro a ±32 g con calibración de 6 caras | Calibrado (reposo = 1.00 g) |
 | Ruta desde la PC hasta el nodo | Funcionando (ubicación de la PC por lugares Wi-Fi) |
-| Terreno 3D en malla de alambre, alturas y perfil de la ruta | Funcionando (AWS Terrain Tiles, sin clave) |
+| Terreno 3D (curvas de nivel sobre el mapa), alturas y perfil de la ruta | Funcionando (AWS Terrain Tiles, sin clave) |
+| Información ambiental: cuerpos de agua que cruza la ruta | Funcionando (OpenStreetMap) |
 | Radio | 915 MHz (banda permitida en México) |
 | Alertas por la malla LoRa a otros nodos | Pendiente |
 
@@ -70,4 +71,4 @@ requirements.txt          Dependencias (requirements.lock: versiones exactas pro
 
 GPL-3.0 (ver [LICENSE](LICENSE)). El firmware parte de [MeshCore](https://github.com/meshcore-dev/MeshCore) (MIT)
 y la interfaz usa [Leaflet](https://leafletjs.com) (BSD-2),
-mapas de © OpenStreetMap y elevación de AWS Terrain Tiles.
+mapas y cuerpos de agua de © OpenStreetMap (ODbL) y elevación de AWS Terrain Tiles.

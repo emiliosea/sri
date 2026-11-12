@@ -325,6 +325,13 @@
   #perfilTip { position: absolute; display: none; pointer-events: none; font-size: 12px; padding: 4px 8px;
                background: var(--bg); color: var(--fg); border: 1px solid var(--fg); white-space: nowrap; }
   #perfilInfo { font-size: 12px; color: var(--fg-2); }
+  .aguaMarca { transform: translate(-50%, -110%); white-space: nowrap; font: bold 10px var(--mono); color: var(--blue);
+               background: var(--bg); border: 1.5px solid var(--blue); padding: 2px 6px; text-align: center; }
+  .aguaMarca span { font-weight: normal; }
+  #ambiental { font-size: 12px; border: 1px solid var(--line); padding: 6px 10px; }
+  #ambiental h4 { margin: 0 0 4px; font-size: 12px; }
+  #ambiental ul { margin: 0; padding-left: 18px; }
+  #ambiental .agua { color: var(--blue); font-weight: bold; }
 
   /* Barra de estado */
   #statusbar { display: flex; gap: 0; font-size: 12px; background: var(--bg-2); border-top: 1px solid var(--line); }
@@ -536,7 +543,7 @@
     </div>
     <div id="terrainPane" class="sheet" style="display:none">
       <div id="terrainTop">
-        <div><b>Terreno</b> <span class="sub">mapa con curvas de nivel en 3D (gris = suelo, azul, morado, rojo = cima); arrastra para girar, rueda para acercar</span></div>
+        <div><b>Terreno</b> <span class="sub">mapa con curvas de nivel en 3D (azul = cuerpos de agua); arrastra para girar, rueda para acercar</span></div>
         <div id="alturas"></div>
       </div>
       <div id="terrainMap"><canvas id="malla"></canvas>
@@ -550,6 +557,7 @@
       </div>
       <div id="perfilWrap"><canvas id="perfil"></canvas><div id="perfilTip"></div></div>
       <div id="perfilInfo"></div>
+      <div id="ambiental"><h4>Información ambiental de la ruta</h4><div class="sub">Cargando cuerpos de agua...</div></div>
       <div id="terrenoPlanoTit"><b>Mapa del área de la malla</b> (recuadro punteado = lo que cubre la malla)</div>
       <div id="terrenoPlano"></div>
     </div>
@@ -1359,6 +1367,7 @@ async function actualizarTerreno(forzar) {
   al.innerHTML = celdas.join('') || '<div class="sub">Sin ubicaciones todavía</div>';
 
   perfilDatos = muestras.length ? muestras.map((m, i) => ({ ...m, e: r.elevaciones[2 + i] })) : null;
+  analizarAgua();
   dibujarPerfil();
   dibujarMalla();
   actualizarPlano(false);
@@ -1366,7 +1375,7 @@ async function actualizarTerreno(forzar) {
 
 // Mapa plano (Leaflet, blanco y negro) del mismo recuadro que la malla, para ver proporciones
 let tPlano = null;
-const plano = { caja: null, ruta: null, nodo: null, pc: null, cursor: null };
+const plano = { caja: null, ruta: null, nodo: null, pc: null, cursor: null, agua: null };
 function planoInit() {
   if (tPlano) return;
   tPlano = L.map('terrenoPlano', { zoomControl: false }).setView([25.66, -100.42], 13);
@@ -1382,6 +1391,17 @@ function actualizarPlano(ajustar) {
     quita('caja');
     plano.caja = L.rectangle([[s, w], [n, e]], { color: cvar('--fg'), weight: 1.5, dashArray: '6 6', fill: false, interactive: false }).addTo(tPlano);
     if (ajustar) tPlano.fitBounds([[s, w], [n, e]], { padding: [10, 10] });
+  }
+  quita('agua');
+  if (agua) {
+    const azul = cvar('--blue'), capas = [];
+    for (const f of agua) capas.push(f.tipo === 'area'
+      ? L.polygon(f.coords, { color: azul, weight: 1, fillColor: azul, fillOpacity: .35 }).bindTooltip(esc(nombreAgua(f)))
+      : L.polyline(f.coords, { color: azul, weight: f.clase === 'río' ? 4 : 2 }).bindTooltip(esc(nombreAgua(f))));
+    for (const m of aguaInfo.marcas) capas.push(L.marker([m.lat, m.lon], { icon: L.divIcon({ className: '',
+      html: `<div class="aguaMarca">~ AGUA | <span>${esc(m.nombre)}</span></div>`, iconSize: null, iconAnchor: [0, 0] }),
+      title: 'Cuerpo de agua' }));
+    plano.agua = L.layerGroup(capas).addTo(tPlano);
   }
   quita('ruta');
   if (rutaCoords && rutaCoords.length > 1)
@@ -1420,6 +1440,7 @@ async function cargarMalla(pts) {
     if (clave !== mallaClave) return;               // llegó una más nueva
     malla = r;
     actualizarPlano(true);
+    cargarAgua(r.caja);
   } catch (err) {
     mallaClave = null;
     document.getElementById('mallaInfo').textContent = String(err.message || err);
@@ -1443,15 +1464,207 @@ function alturaMalla(lat, lon) {
   return a * (1 - di) * (1 - dj) + b * (1 - di) * dj + c * di * (1 - dj) + d * di * dj;
 }
 
-// Rampa de color por altura: gris (suelo) -> azul -> morado -> rojo (cima); n tonos como texto CSS
+// ---------------------------------------------------------------------------
+// Cuerpos de agua (OpenStreetMap): se dibujan en azul en el 3D, el perfil y el mapa, y se analiza la ruta:
+//   qué ríos/arroyos cruza (a menos de 20 m) y cuáles pasan cerca (a menos de 200 m).
+// ---------------------------------------------------------------------------
+let agua = null, aguaClave = null, aguaInfo = { cruces: [], marcas: [] };
+const AGUA_CRUCE = 20, AGUA_CERCA = 200;
+
+async function cargarAgua(caja) {
+  // recuadro redondeado hacia afuera a 0.02 grados (~2 km): si el nodo se mueve poco, se reusa la consulta
+  const G = 0.02, r2 = (v, f) => (f(v / G) * G).toFixed(2);
+  const clave = [r2(caja[0], Math.floor), r2(caja[1], Math.floor), r2(caja[2], Math.ceil), r2(caja[3], Math.ceil)].join(',');
+  if (clave === aguaClave) return;
+  aguaClave = clave;
+  try {
+    const r = await (await fetch(`/api/terreno/agua?caja=${clave}`)).json();
+    if (!r.ok) throw new Error(r.error);
+    if (clave !== aguaClave) return;
+    agua = r.agua;
+  } catch (err) {
+    aguaClave = null; agua = null;
+    document.getElementById('ambiental').innerHTML =
+      `<h4>Información ambiental de la ruta</h4><div class="err">${esc(String(err.message || err))}</div>`;
+    return;
+  }
+  analizarAgua();
+  dibujarMalla(); dibujarPerfil(); actualizarPlano(false);
+}
+
+const normaNombre = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const nombreAgua = f => f.nombre ? f.nombre : `${f.clase[0].toUpperCase()}${f.clase.slice(1)} sin nombre`;
+
+function analizarAgua() {
+  const caja = document.getElementById('ambiental');
+  aguaInfo = { cruces: [], marcas: [] };
+  if (!agua) return;
+  // proyección local en metros (centro del área)
+  const ref = malla ? [(malla.caja[0] + malla.caja[2]) / 2, (malla.caja[1] + malla.caja[3]) / 2] : agua[0]?.coords[0];
+  if (!ref) { caja.innerHTML = '<h4>Información ambiental de la ruta</h4><div class="sub">No hay cuerpos de agua registrados en el área.</div>'; return; }
+  const kx = 111320 * Math.cos(ref[0] * Math.PI / 180), ky = 110574;
+  const xy = c => [(c[1] - ref[1]) * kx, (c[0] - ref[0]) * ky];
+  for (const f of agua) if (!f._xy) f._xy = f.coords.map(xy);
+  const distSeg = (p, a, b) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy;
+    const t = L2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2)) : 0;
+    const qx = a[0] + t * dx, qy = a[1] + t * dy;
+    return [Math.hypot(p[0] - qx, p[1] - qy), qx, qy];
+  };
+  const dentro = (p, g) => {
+    let r = false;
+    for (let i = 0, j = g.length - 1; i < g.length; j = i++)
+      if ((g[i][1] > p[1]) !== (g[j][1] > p[1]) && p[0] < (g[j][0] - g[i][0]) * (p[1] - g[i][1]) / (g[j][1] - g[i][1]) + g[i][0]) r = !r;
+    return r;
+  };
+  const toLL = (x, y) => [ref[0] + y / ky, ref[1] + x / kx];
+  const enCaja = f => !malla || f.coords.some(c => c[0] >= malla.caja[0] && c[0] <= malla.caja[2] && c[1] >= malla.caja[1] && c[1] <= malla.caja[3]);
+  const visibles = agua.filter(enCaja);
+  // Ruta completa en metros con distancia acumulada (más precisa que las muestras del perfil)
+  const R = [];
+  if (rutaCoords && rutaCoords.length > 1) {
+    let acum = 0;
+    rutaCoords.forEach((c, i) => {
+      const p = xy(c);
+      if (i) acum += Math.hypot(p[0] - R[i - 1].x, p[1] - R[i - 1].y);
+      R.push({ x: p[0], y: p[1], d: acum, lat: c[0], lon: c[1] });
+    });
+  }
+  // Para cada cuerpo de agua (visible): cruces exactos (intersección de segmentos) y distancia mínima
+  const corta = (a, b, c, d) => {             // segmentos ab y cd -> t sobre ab, o null
+    const r1 = b[0] - a[0], r2 = b[1] - a[1], s1 = d[0] - c[0], s2 = d[1] - c[1];
+    const den = r1 * s2 - r2 * s1;
+    if (!den) return null;
+    const t = ((c[0] - a[0]) * s2 - (c[1] - a[1]) * s1) / den, u = ((c[0] - a[0]) * r2 - (c[1] - a[1]) * r1) / den;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
+  };
+  const porNombre = new Map(), cruces = [];
+  for (const f of visibles) {
+    const g = f._xy;
+    if (!f._bb) f._bb = g.reduce((bb, p) => [Math.min(bb[0], p[0]), Math.min(bb[1], p[1]), Math.max(bb[2], p[0]), Math.max(bb[3], p[1])], [Infinity, Infinity, -Infinity, -Infinity]);
+    const bb = f._bb;
+    let best = { dist: Infinity };
+    for (let i = 0; i < R.length; i++) {
+      const p = R[i];
+      if (p.x < bb[0] - AGUA_CERCA || p.x > bb[2] + AGUA_CERCA || p.y < bb[1] - AGUA_CERCA || p.y > bb[3] + AGUA_CERCA) continue;
+      for (let k = 1; k < g.length; k++) {
+        const [dd, qx, qy] = distSeg([p.x, p.y], g[k - 1], g[k]);
+        if (dd < best.dist) best = { dist: dd, d: p.d, ll: toLL(qx, qy) };
+        if (i && (p.x - R[i - 1].x || p.y - R[i - 1].y)) {
+          const t = corta([R[i - 1].x, R[i - 1].y], [p.x, p.y], g[k - 1], g[k]);
+          if (t != null) {
+            const d = R[i - 1].d + t * (p.d - R[i - 1].d);
+            if (!cruces.some(c => c.f === f && Math.abs(c.d0 - d) < 50))
+              cruces.push({ f, d0: d, d1: d, nombre: nombreAgua(f),
+                            lat: R[i - 1].lat + t * (p.lat - R[i - 1].lat), lon: R[i - 1].lon + t * (p.lon - R[i - 1].lon) });
+            best = { dist: 0, d, ll: [cruces[cruces.length - 1].lat, cruces[cruces.length - 1].lon] };
+          }
+        }
+      }
+    }
+    if (best.dist === Infinity) continue;
+    const k = (f.nombre || '') + '|' + f.clase + (f.nombre ? '' : '|' + agua.indexOf(f));
+    const prev = porNombre.get(k);
+    if (!prev || best.dist < prev.dist) porNombre.set(k, { ...best, f, nombre: nombreAgua(f) });
+  }
+  // un mismo río con nombre en varios tramos: un solo cruce por cada paso (a más de 50 m del anterior)
+  cruces.sort((a, b) => a.d0 - b.d0);
+  aguaInfo.cruces = cruces.filter((c, i) => !cruces.slice(0, i).some(o => c.f.nombre && normaNombre(o.nombre) === normaNombre(c.nombre) && Math.abs(o.d0 - c.d0) < 100));
+  const lista = [...porNombre.values()];
+  // marcadores: cruces primero, luego lo cercano, luego lo grande con nombre (máx. 6, sin repetir nombre)
+  const usados = new Set(), marcas = [];
+  const add = (lat, lon, nombre) => { const k = normaNombre(nombre);
+    if (marcas.length < 5 && !usados.has(k)) { usados.add(k); marcas.push({ lat, lon, nombre }); } };
+  for (const c of aguaInfo.cruces) add(c.lat, c.lon, c.nombre);           // todo lo que cruza la ruta
+  lista.filter(x => x.dist <= AGUA_CERCA && x.f.nombre).sort((a, b) => a.dist - b.dist).forEach(x => add(x.ll[0], x.ll[1], x.nombre));
+  visibles.filter(f => f.nombre).sort((a, b) => (b.tipo === 'area') - (a.tipo === 'area') || b.coords.length - a.coords.length)
+      .forEach(f => { const c = f.coords.find(c => c[0] >= malla.caja[0] && c[0] <= malla.caja[2] && c[1] >= malla.caja[1] && c[1] <= malla.caja[3]) || f.coords[0];
+                      add(c[0], c[1], nombreAgua(f)); });
+  aguaInfo.marcas = marcas;
+
+  // texto
+  const fd = d => fmtDist(Math.round(d));
+  let html = '<h4>Información ambiental de la ruta</h4>';
+  const nAreas = visibles.filter(f => f.tipo === 'area').length, nLin = visibles.length - nAreas;
+  const nombres = [...new Set(visibles.filter(f => f.nombre).map(f => f.nombre))];
+  html += `<div class="sub">En el área: ${nLin} ríos/arroyos/canales y ${nAreas} lagos, presas o estanques` +
+          (nombres.length ? ` (${nombres.slice(0, 5).map(esc).join(', ')}${nombres.length > 5 ? '...' : ''})` : '') + '. Fuente: OpenStreetMap.</div>';
+  if (!R.length) html += '<div class="sub">Traza la ruta (cinta Ruta) para ver qué cuerpos de agua cruza.</div>';
+  else {
+    const cerca = lista.filter(x => x.dist > AGUA_CRUCE && x.dist <= AGUA_CERCA).sort((a, b) => a.d - b.d);
+    html += aguaInfo.cruces.length
+      ? `<div><span class="agua">La ruta cruza ${aguaInfo.cruces.length} cuerpo${aguaInfo.cruces.length > 1 ? 's' : ''} de agua:</span></div><ul>` +
+        aguaInfo.cruces.map(c => `<li>${esc(c.nombre)} (${esc(c.f.clase)}) a ${fd(c.d0)} desde la PC</li>`).join('') + '</ul>'
+      : '<div>La ruta no cruza cuerpos de agua registrados.</div>';
+    if (cerca.length) html += `<div>Pasa cerca (a menos de ${AGUA_CERCA} m) de:</div><ul>` +
+      cerca.slice(0, 10).map(x => `<li>${esc(x.nombre)} (${esc(x.f.clase)}): a ${Math.round(x.dist)} m, en el km ${(x.d / 1000).toFixed(1)}</li>`).join('') +
+      (cerca.length > 10 ? `<li>y ${cerca.length - 10} más</li>` : '') + '</ul>';
+  }
+  caja.innerHTML = html;
+}
+
+// Dibuja el agua en el canvas 3D; aPantalla(lat, lon) -> [sx, sy]
+function dibujarAgua(ctx, aPantalla) {
+  if (!agua || !malla) return;
+  const azul = cvar('--blue'), [s, w, n, e] = malla.caja;
+  const fuera = c => c[0] < s || c[0] > n || c[1] < w || c[1] > e;
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (const f of agua) {
+    if (f._fuera === undefined || f._caja !== malla.caja) { f._fuera = f.coords.every(fuera); f._caja = malla.caja; }
+    if (f._fuera) continue;
+    // solo la parte dentro del recuadro (en la malla no hay recorte por el piso)
+    if (f._parcial === undefined || f._caja2 !== malla.caja) { f._parcial = f.coords.some(fuera); f._caja2 = malla.caja; }
+    ctx.beginPath();
+    let dentroPrev = false;
+    for (const c of f.coords) {
+      const ok = !fuera(c);
+      if (ok) { const q = aPantalla(c[0], c[1]); dentroPrev ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }
+      dentroPrev = ok;
+    }
+    if (f.tipo === 'area' && f._parcial) { ctx.strokeStyle = azul; ctx.lineWidth = 1.2; ctx.stroke(); continue; }
+    if (f.tipo === 'area') {
+      ctx.closePath(); ctx.fillStyle = azul; ctx.globalAlpha = 0.35; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = azul; ctx.lineWidth = 1.2; ctx.stroke();
+    } else {
+      ctx.strokeStyle = azul; ctx.lineWidth = f.clase === 'río' ? 3 : f.clase === 'canal' ? 2 : 1.5; ctx.stroke();
+    }
+  }
+}
+
+// Marcador de cuerpo de agua: una etiqueta "~ AGUA | nombre" en azul, con poste punteado
+function marcaAgua(ctx, base, nombre, ocupados) {
+  const azul = cvar('--blue');
+  ctx.font = `bold 10px ${cvar('--mono')}`;
+  const txt0 = '~ AGUA | ' + (nombre.length > 26 ? nombre.slice(0, 25) + '.' : nombre), tw0 = ctx.measureText(txt0).width + 10;
+  // si choca con otra etiqueta, subirla hasta que quede libre
+  let alto = 22;
+  const choca = y => ocupados.some(r => !(base[0] + tw0 / 2 < r[0] || base[0] - tw0 / 2 > r[2] || y < r[1] || y - 15 > r[3]));
+  while (choca(base[1] - alto) && alto < 22 + 18 * 6) alto += 18;
+  ocupados.push([base[0] - tw0 / 2, base[1] - alto - 15, base[0] + tw0 / 2, base[1] - alto]);
+  const top = [base[0], base[1] - alto];
+  ctx.strokeStyle = azul; ctx.lineWidth = 1.5; ctx.setLineDash([2, 2]);
+  ctx.beginPath(); ctx.moveTo(base[0], base[1]); ctx.lineTo(top[0], top[1]); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = azul; ctx.beginPath(); ctx.arc(base[0], base[1], 3, 0, 2 * Math.PI); ctx.fill();
+  ctx.font = `bold 10px ${cvar('--mono')}`;
+  const txt = '~ AGUA | ' + (nombre.length > 26 ? nombre.slice(0, 25) + '.' : nombre), tw = ctx.measureText(txt).width + 10;
+  ctx.fillStyle = cvar('--bg'); ctx.fillRect(top[0] - tw / 2, top[1] - 15, tw, 15);
+  ctx.strokeStyle = azul; ctx.lineWidth = 1.2; ctx.strokeRect(top[0] - tw / 2 + .5, top[1] - 14.5, tw - 1, 14);
+  ctx.fillStyle = azul; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, top[0], top[1] - 7);
+}
+
+const CURVAS_MONO = true;
+
+// Rampa de color por altura: gris (lo más bajo) -> rojo (lo más alto); n tonos como texto CSS.
+//   El azul queda reservado para los cuerpos de agua.
+function rgbDe(ctx, c) {
+  ctx.fillStyle = '#000'; ctx.fillStyle = c; const h = ctx.fillStyle;
+  return h[0] === '#' ? [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)) : h.match(/\d+/g).slice(0, 3).map(Number);
+}
 function rampaAltura(ctx, n) {
-  const rgb = c => { ctx.fillStyle = '#000'; ctx.fillStyle = c; const h = ctx.fillStyle;
-    return h[0] === '#' ? [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)) : h.match(/\d+/g).slice(0, 3).map(Number); };
-  const paradas = [[0, rgb(cvar('--fg-3'))], [0.25, rgb(cvar('--blue'))], [1, rgb(cvar('--red'))]];
+  const a = rgbDe(ctx, cvar('--fg-3')), b = rgbDe(ctx, cvar('--red'));
   return Array.from({ length: n }, (_, i) => {
-    const t = i / (n - 1);
-    const k = t <= paradas[1][0] ? 0 : 1, [ta, ca] = paradas[k], [tb, cb] = paradas[k + 1], f = (t - ta) / (tb - ta);
-    return `rgb(${ca.map((v, m) => Math.round(v + (cb[m] - v) * f)).join(',')})`;
+    const t = Math.pow(i / (n - 1), 0.8);           // el rojo aparece un poco antes en las partes altas
+    return `rgb(${a.map((v, m) => Math.round(v + (b[m] - v) * t)).join(',')})`;
   });
 }
 const colorDe = (rampa, t) => rampa[Math.min(rampa.length - 1, Math.max(0, Math.round(t * (rampa.length - 1))))];
@@ -1550,7 +1763,9 @@ function dibujarMalla() {
     return [cx + xr * esc_, cy - (yr * ci + zz * si) * esc_, yr * si - zz * ci];   // [sx, sy, profundidad]
   };
   const fondo = cvar('--bg');
-  const rampa = rampaAltura(ctx, 64);
+  // Curvas y malla de un solo color (negro en modo claro, blanco en oscuro); con CURVAS_MONO = false
+  // vuelve la rampa gris -> rojo por altura
+  const rampa = CURVAS_MONO ? [cvar('--fg')] : rampaAltura(ctx, 64);
   const t = el => (el - lo) / Math.max(hi - lo, 1);
   const curvasModo = vista.modo === 'curvas';
   const pisoZ = lo;                                  // el mapa va a la altura más baja
@@ -1578,12 +1793,14 @@ function dibujarMalla() {
                        dpr * (sw[0] - nw[0]) / 256, dpr * (sw[1] - nw[1]) / 256, dpr * nw[0], dpr * nw[1]);
       ctx.drawImage(ent.cv, 0, 0, 256.8, 256.8);      // 0.8 px extra para que no se vean juntas
     }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    dibujarAgua(ctx, enPiso);                         // agua sobre el mapa, recortada al piso
     ctx.restore();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.strokeStyle = cvar('--fg-3'); ctx.lineWidth = 1;
     ctx.beginPath(); esq.forEach((q, i) => i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])); ctx.closePath(); ctx.stroke();
 
-    // 2) Ruta sobre el mapa
+    // 2) Ruta sobre el mapa (el agua ya se dibujó dentro del recorte del piso)
     if (rutaCoords && rutaCoords.length > 1) {
       ctx.beginPath();
       rutaCoords.forEach((c, i) => { const q = enPiso(c[0], c[1]); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
@@ -1627,6 +1844,7 @@ function dibujarMalla() {
       ctx.fillStyle = fondo; ctx.fill();
       ctx.strokeStyle = colorDe(rampa, t((A[a] + A[b] + A[c] + A[d]) / 4)); ctx.stroke();
     }
+    dibujarAgua(ctx, (la, lo_) => { const [x, y] = aMetros(la, lo_); return proy(x, y, alturaMalla(la, lo_)); });
     if (rutaCoords && rutaCoords.length > 1) {
       ctx.beginPath();
       rutaCoords.forEach((c, i) => { const [x, y] = aMetros(c[0], c[1]); const q = proy(x, y, alturaMalla(c[0], c[1]));
@@ -1636,6 +1854,12 @@ function dibujarMalla() {
     }
   }
 
+  // Marcadores de agua (en el mapa o sobre la malla)
+  const ocupados = [];
+  for (const m of aguaInfo.marcas) {
+    const [mx, my] = aMetros(m.lat, m.lon);
+    marcaAgua(ctx, proy(mx, my, curvasModo ? pisoZ : alturaMalla(m.lat, m.lon)), m.nombre, ocupados);
+  }
   // Marcadores: en modo curvas, poste desde el mapa hasta su altura real
   ctx.font = `bold 11px ${cvar('--mono')}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const [id, m] of Object.entries(tPuntos)) {
@@ -1664,11 +1888,23 @@ function dibujarMalla() {
   }
   // leyenda de colores
   const LX = 8, LY = 40, LW = 160;
-  rampa.forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(LX + i * LW / rampa.length, LY, LW / rampa.length + 1, 8); });
-  ctx.strokeStyle = cvar('--line'); ctx.lineWidth = 1; ctx.strokeRect(LX + .5, LY + .5, LW, 8);
+  if (CURVAS_MONO && !curvasModo) {                   // malla: sin leyenda de líneas
+  } else if (CURVAS_MONO) {                           // muestra de línea: delgada y gruesa
+    ctx.fillStyle = cvar('--fg'); ctx.fillRect(LX, LY + 2, LW / 2 - 6, 1.2); ctx.fillRect(LX + LW / 2 + 6, LY + 1.5, LW / 2 - 6, 2.2);
+  } else {
+    rampa.forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(LX + i * LW / rampa.length, LY, LW / rampa.length + 1, 8); });
+    ctx.strokeStyle = cvar('--line'); ctx.lineWidth = 1; ctx.strokeRect(LX + .5, LY + .5, LW, 8);
+  }
   ctx.font = `10px ${cvar('--mono')}`; ctx.fillStyle = cvar('--fg-2'); ctx.textBaseline = 'top';
-  ctx.textAlign = 'left'; ctx.fillText(`${lo.toFixed(0)} m`, LX, LY + 11);
-  ctx.textAlign = 'right'; ctx.fillText(`${hi.toFixed(0)} m`, LX + LW, LY + 11);
+  if (CURVAS_MONO && curvasModo) {
+    ctx.textAlign = 'left'; ctx.fillText(`cada ${curvas.paso} m`, LX, LY + 11);
+    ctx.textAlign = 'right'; ctx.fillText(`cada ${curvas.paso * 5} m`, LX + LW, LY + 11);
+  } else if (!CURVAS_MONO) {
+    ctx.textAlign = 'left'; ctx.fillText(`${lo.toFixed(0)} m`, LX, LY + 11);
+    ctx.textAlign = 'right'; ctx.fillText(`${hi.toFixed(0)} m`, LX + LW, LY + 11);
+  }
+  ctx.fillStyle = cvar('--blue'); ctx.fillRect(LX + LW + 14, LY, 18, 8);
+  ctx.fillStyle = cvar('--fg-2'); ctx.textAlign = 'left'; ctx.fillText('agua', LX + LW + 36, LY - 1);
   ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
   // escala y rumbo
   const kmLado = lado / 1000;
@@ -1764,7 +2000,23 @@ function dibujarPerfil() {
   ctx.lineTo(X(S.total), Y(lo)); ctx.closePath();
   ctx.fillStyle = cvar('--fg-3'); ctx.globalAlpha = 0.18; ctx.fill(); ctx.globalAlpha = 1;
   ctx.beginPath(); P.forEach((q, i) => i ? ctx.lineTo(X(q.d), Y(q.e)) : ctx.moveTo(X(q.d), Y(q.e)));
-  ctx.strokeStyle = cvar('--blue'); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.strokeStyle = cvar('--red'); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  // cruces con cuerpos de agua: franja azul y nombre
+  ctx.font = `10px ${cvar('--mono')}`;
+  const filas = [-Infinity, -Infinity, -Infinity];          // hasta 3 renglones de nombres; si no caben, solo la franja
+  for (const c of aguaInfo.cruces) {
+    const xa = X(c.d0), xb = Math.max(X(c.d1), xa + 3);
+    ctx.fillStyle = cvar('--blue'); ctx.globalAlpha = 0.25; ctx.fillRect(xa - 1.5, T, xb - xa, ph); ctx.globalAlpha = 1;
+    ctx.fillRect(xa - 1.5, T + ph - 4, xb - xa, 4);
+    const txt = '~ ' + (c.nombre.length > 22 ? c.nombre.slice(0, 21) + '.' : c.nombre), tw = ctx.measureText(txt).width;
+    const x0 = Math.min(Math.max(xa + 3, L + 2), W - Rm - tw - 2);
+    const fila = filas.findIndex(fin => x0 > fin + 6);
+    if (fila < 0) continue;
+    filas[fila] = x0 + tw;
+    ctx.fillStyle = cvar('--bg'); ctx.globalAlpha = 0.8; ctx.fillRect(x0 - 1, T + 2 + fila * 12, tw + 2, 11); ctx.globalAlpha = 1;
+    ctx.fillStyle = cvar('--blue'); ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(txt, x0, T + 2 + fila * 12);
+  }
+  ctx.font = `11px ${cvar('--mono')}`;
   // extremos
   ctx.fillStyle = cvar('--fg-2'); ctx.textBaseline = 'bottom';
   ctx.textAlign = 'left'; ctx.fillText('PC', X(0) + 4, Y(P[0].e) - 4);
@@ -1778,7 +2030,7 @@ function dibujarPerfil() {
   const d = (Math.min(Math.max(perfilHover, L), W - Rm) - L) / pw * S.total;
   const q = P.reduce((a, b) => Math.abs(b.d - d) < Math.abs(a.d - d) ? b : a);
   ctx.strokeStyle = cvar('--fg-3'); ctx.beginPath(); ctx.moveTo(X(q.d) + .5, T); ctx.lineTo(X(q.d) + .5, T + ph); ctx.stroke();
-  ctx.fillStyle = cvar('--red'); ctx.beginPath(); ctx.arc(X(q.d), Y(q.e), 4, 0, 2 * Math.PI); ctx.fill();
+  ctx.fillStyle = cvar('--fg'); ctx.beginPath(); ctx.arc(X(q.d), Y(q.e), 4, 0, 2 * Math.PI); ctx.fill();
   tip.innerHTML = `${fmtDist(Math.round(q.d))} desde la PC<br><b>${q.e.toFixed(0)} m</b> sobre el nivel del mar`;
   tip.style.display = 'block';
   tip.style.left = (X(q.d) + 12 + tip.offsetWidth > W ? X(q.d) - tip.offsetWidth - 12 : X(q.d) + 12) + 'px';
@@ -1791,7 +2043,11 @@ const perfilCv = document.getElementById('perfil');
 perfilCv.addEventListener('mousemove', e => { perfilHover = e.offsetX; dibujarPerfil(); });
 perfilCv.addEventListener('mouseleave', () => { perfilHover = null; dibujarPerfil(); });
 window.addEventListener('resize', () => { if (sheetActual === 'terreno') dibujarPerfil(); });
-setInterval(() => { if (sheetActual === 'terreno') actualizarTerreno(false); }, 5000);
+setInterval(() => {
+  if (sheetActual !== 'terreno') return;
+  actualizarTerreno(false);
+  if (malla && !agua && !aguaClave) cargarAgua(malla.caja);     // reintentar el agua si falló
+}, 5000);
 
 function alarm() {
   if (!soundOn) return;

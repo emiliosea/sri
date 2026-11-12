@@ -35,9 +35,20 @@ los marcadores son los movimientos evaluados (triángulo rojo = alertó, círcul
 **Terreno** - vista 3D del área que cubre el nodo, la PC y la ruta. Se gira e inclina arrastrando, se acerca
 con la rueda; botones 1x/2x/4x para exagerar el relieve y "Vista inicial". Dos modos:
 - **Curvas + mapa** (por defecto): el mapa de calles en blanco y negro es el piso, con la ruta en rojo (igual que en la hoja Mapa), y encima
-  las **curvas de nivel** a su altura real, de **gris (suelo) a azul, morado y rojo (cima)**; una de cada cinco es
-  más gruesa. El nodo y la PC tienen un poste punteado desde el mapa hasta su altura.
-- **Malla**: malla de alambre (90x90 puntos) con los mismos colores por altura.
+  las **curvas de nivel** a su altura real, en **negro (modo claro) o blanco (modo oscuro)**; una de cada cinco
+  es más gruesa. Los **cuerpos de agua** van en **azul**. (Con `CURVAS_MONO = false` en `index.html` vuelve la
+  rampa gris -> rojo por altura.) El nodo y la PC tienen un poste punteado desde el mapa hasta su altura.
+- **Malla**: malla de alambre (90x90 puntos) en el mismo color y el agua encima.
+
+**Información ambiental (cuerpos de agua)** - ríos, arroyos, canales, drenes, lagos, presas y estanques de
+OpenStreetMap (consulta a Overpass; solo se envía el recuadro del área). Se ven en azul en el 3D, en el mapa de
+abajo y en el perfil, con marcadores **"~ AGUA | nombre"** para los que cruza la ruta y los que tienen nombre cerca.
+Debajo del perfil se listan:
+- los cuerpos de agua que **cruza** la ruta (intersección exacta de la ruta con el río o el contorno del lago) y
+  a qué distancia desde la PC; en el perfil aparecen como franjas azules;
+- los que pasan **cerca** (a menos de 200 m), con la distancia y el km de la ruta.
+En áreas grandes (~25 km) la primera consulta tarda ~30 s; luego se guarda en `data/agua/` y se reusa mientras el
+nodo no se mueva ~2 km. Si Overpass está saturado se prueban dos servidores espejo y la página reintenta sola.
 
 Debajo hay además un **mapa normal del mismo recuadro** (línea punteada) con la ruta, el nodo y la PC. Muestra:
 - **Alturas** sobre el nivel del mar del nodo y de esta PC, y la diferencia entre ambos (la del nodo también
@@ -79,6 +90,7 @@ luego "Aplicar". Se guarda en `data/calibracion.json` y se reenvía al nodo en c
 | `impactos.jsonl` | Eventos del detector con su posición |
 | `calibracion.json` | Calibración del acelerómetro |
 | `lugares_wifi.json` | Lugares de la PC y sus huellas Wi-Fi |
+| `agua/` | Cuerpos de agua ya consultados a OpenStreetMap (caché por recuadro) |
 
 ## API del servidor
 
@@ -94,5 +106,6 @@ luego "Aplicar". Se guarda en `data/calibracion.json` y se reenvía al nodo en c
 | `GET /api/ruta?desde=lat,lon&hasta=lat,lon&modo=pie` | Ruta |
 | `POST /api/elevacion` `{"puntos": [[lat, lon], ...]}` | Altura del terreno de cada punto (máx. 500) |
 | `GET /api/terreno/malla?caja=lat1,lon1,lat2,lon2&n=90` | Rejilla n x n de alturas para la malla de alambre |
+| `GET /api/terreno/agua?caja=lat1,lon1,lat2,lon2` | Cuerpos de agua de OpenStreetMap en el recuadro (áreas y líneas) |
 | `GET /api/mi_ubicacion`, `POST /api/mi_ubicacion/fijar` | Ubicación de la PC por Wi-Fi |
 | `GET /api/connection`, `POST /api/connect`, `GET /api/ble/scan`, `GET /api/ports` | Conexión |

@@ -10,6 +10,7 @@ Luego abre http://localhost:5000
 
 import argparse
 import math
+import os
 import random
 import threading
 import time
@@ -1082,6 +1083,102 @@ def api_terrain_mesh():
     except Exception as ex_:  # noqa: BLE001
         return jsonify({"ok": False, "error": f"No se pudo leer el terreno ({type(ex_).__name__}); ¿hay internet?"}), 502
     return jsonify({"ok": True, "n": n, "caja": [s, w, nn, e], "zoom": z, "alturas": alt})
+
+
+# ---------------------------------------------------------------------------
+# Cuerpos de agua (OpenStreetMap vía Overpass): ríos, arroyos, canales, lagos, presas.
+#   Se envía a overpass-api.de solo el recuadro del terreno (no la posición exacta).
+# ---------------------------------------------------------------------------
+OVERPASS_URLS = ["https://overpass-api.de/api/interpreter",          # principal y espejos públicos
+                 "https://overpass.kumi.systems/api/interpreter",
+                 "https://overpass.private.coffee/api/interpreter"]
+_agua_cache = {}
+AGUA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "agua")   # caché en disco
+_CLASE_AGUA = {"river": "río", "stream": "arroyo", "canal": "canal", "drain": "dren", "ditch": "zanja",
+               "lake": "lago", "reservoir": "presa", "pond": "estanque", "lagoon": "laguna", "oxbow": "laguna",
+               "basin": "estanque", "wastewater": "laguna de tratamiento"}
+
+
+def _clase_agua(tags):
+    if tags.get("waterway"):
+        return _CLASE_AGUA.get(tags["waterway"], "arroyo")
+    if tags.get("landuse") == "reservoir":
+        return "presa"
+    return _CLASE_AGUA.get(tags.get("water", ""), "cuerpo de agua")
+
+
+def _cerrado(g):
+    return len(g) > 3 and g[0] == g[-1]
+
+
+@app.route("/api/terreno/agua")
+def api_terrain_water():
+    """?caja=lat1,lon1,lat2,lon2 -> {"ok", "agua": [{tipo: area|linea, clase, nombre, coords: [[lat, lon], ...]}]}"""
+    import json
+    import urllib.parse
+    import urllib.request
+    from flask import request
+    try:
+        la1, lo1, la2, lo2 = (float(v) for v in request.args.get("caja", "").split(","))
+    except ValueError:
+        return jsonify({"ok": False, "error": "caja=lat1,lon1,lat2,lon2"}), 400
+    s, w, n, e = min(la1, la2), min(lo1, lo2), max(la1, la2), max(lo1, lo2)
+    if (n - s) * (e - w) > 1.0:
+        return jsonify({"ok": False, "error": "Área demasiado grande"}), 400
+    clave = tuple(round(v, 3) for v in (s, w, n, e))
+    if clave in _agua_cache:
+        return jsonify(_agua_cache[clave])
+    archivo = os.path.join(AGUA_DIR, "_".join(f"{v:.3f}" for v in clave) + ".json")
+    try:
+        with open(archivo, encoding="utf-8") as f:
+            _agua_cache[clave] = json.load(f)
+        return jsonify(_agua_cache[clave])
+    except (OSError, ValueError):
+        pass
+    bb = f"{s},{w},{n},{e}"
+    q = (f'[out:json][timeout:25];('
+         f'way["natural"="water"]({bb});relation["natural"="water"]({bb});'
+         f'way["waterway"~"^(river|stream|canal|drain|ditch)$"]({bb});'
+         f'way["landuse"="reservoir"]({bb});relation["landuse"="reservoir"]({bb}););out tags geom;')
+    datos, error = None, None
+    for url in OVERPASS_URLS:              # si uno está saturado, probar el siguiente
+        try:
+            req = urllib.request.Request(url, data=urllib.parse.urlencode({"data": q}).encode(),
+                                         headers={"User-Agent": "rastreador-meshcore/1.0"})
+            with urllib.request.urlopen(req, timeout=45) as r:
+                datos = json.load(r)
+            break
+        except Exception as ex:  # noqa: BLE001
+            error = type(ex).__name__
+    if datos is None:
+        return jsonify({"ok": False, "error": f"No se pudo consultar OpenStreetMap ({error}); se reintentará"}), 502
+    agua = []
+    for el in datos.get("elements", []):
+        tags = el.get("tags", {})
+        clase, nombre = _clase_agua(tags), tags.get("name")
+        if el["type"] == "way":
+            g = [[round(p["lat"], 6), round(p["lon"], 6)] for p in el.get("geometry", [])]
+            if len(g) < 2:
+                continue
+            area = not tags.get("waterway") and _cerrado(g)
+            agua.append({"tipo": "area" if area else "linea", "clase": clase, "nombre": nombre, "coords": g})
+        else:   # relación (multipolígono): cada miembro "outer" como área, o como línea si no cierra
+            for m in el.get("members", []):
+                if m.get("role") not in ("outer", "") or not m.get("geometry"):
+                    continue
+                g = [[round(p["lat"], 6), round(p["lon"], 6)] for p in m["geometry"]]
+                agua.append({"tipo": "area" if _cerrado(g) else "linea", "clase": clase, "nombre": nombre, "coords": g})
+    res = {"ok": True, "agua": agua, "fuente": "© OpenStreetMap (Overpass)"}
+    if len(_agua_cache) > 50:
+        _agua_cache.pop(next(iter(_agua_cache)))
+    _agua_cache[clave] = res
+    try:
+        os.makedirs(AGUA_DIR, exist_ok=True)
+        with open(archivo, "w", encoding="utf-8") as f:
+            json.dump(res, f)
+    except OSError:
+        pass
+    return jsonify(res)
 
 
 @app.route("/api/elevacion", methods=["POST"])

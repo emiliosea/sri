@@ -11,7 +11,8 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 4. Detector de caídas (v1) | 9 nov 2026 | Firmware propio que usa el acelerómetro |
 | 5. Detector v2, gráfica y calibración | 9-10 nov 2026 | Algoritmo pico - reposo, ±32 g, calibración de 6 caras |
 | 6. Ruta, interfaz tipo Excel y GitHub | 10 nov 2026 | Ruta automática, eventos en CSV, repositorio público |
-| 7. Terreno y elevación | 10 nov 2026 | Relieve 3D en malla de alambre, alturas y perfil de la ruta |
+| 7. Terreno y elevación | 10-11 nov 2026 | Relieve 3D (curvas + mapa), alturas y perfil de la ruta |
+| 8. Información ambiental | 12 nov 2026 | Cuerpos de agua en el terreno y cuáles cruza la ruta |
 
 ---
 
@@ -88,6 +89,16 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
   con interpolación bilineal.
 - Altura del nodo y de la PC, y **perfil de elevación de la ruta** con subida/bajada acumulada y pendiente.
 - Ejemplo real: nodo a 654 m (GPS: 700 m), PC a 386 m; ruta de 38 km a pie que sube 558 m y baja 290 m.
+
+## Etapa 8 - Información ambiental: cuerpos de agua (12 nov)
+
+- Ríos, arroyos, canales, drenes, lagos, presas y estanques de **OpenStreetMap** (Overpass) en el área del terreno.
+- Colores: el relieve en **negro/blanco** según el tema (se probó gris -> rojo por altura) y el **azul queda solo
+  para el agua**.
+- Marcadores **"~ AGUA | nombre"** en el 3D y en el mapa; franjas azules en el perfil donde la ruta cruza agua.
+- Análisis de la ruta: cruces exactos (intersección de segmentos) y cuerpos de agua a menos de 200 m.
+- Ejemplo real (ruta en coche de 30 km): cruza el **Río Santa Catarina** dos veces y un arroyo sin nombre, y pasa
+  cerca de Arroyo El Perdido, un dren, un lago y estanques.
 
 ---
 
