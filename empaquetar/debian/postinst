@@ -1,6 +1,7 @@
 #!/bin/sh
 set -e
 if [ "$1" = "configure" ]; then
+  # usuario del modo estación (servicio); el programa de escritorio corre con el usuario que lo abre
   if ! getent passwd sri >/dev/null; then
     adduser --system --group --home /var/lib/sri --no-create-home --gecos "SRI" sri
   fi
@@ -12,8 +13,10 @@ if [ "$1" = "configure" ]; then
   chmod 750 /var/lib/sri
   if [ -d /run/systemd/system ]; then
     systemctl daemon-reload
-    systemctl enable sri.service >/dev/null 2>&1 || true
-    systemctl restart sri.service || true
+    # solo se reinicia si ya estaba en modo estación (sri-estacion activar)
+    systemctl is-enabled --quiet sri.service 2>/dev/null && systemctl restart sri.service || true
   fi
+  command -v update-desktop-database >/dev/null && update-desktop-database -q /usr/share/applications || true
+  command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q /usr/share/icons/hicolor || true
 fi
 exit 0

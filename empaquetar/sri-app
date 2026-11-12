@@ -1,0 +1,67 @@
+#!/bin/bash
+# SRI como programa de escritorio: abre la interfaz en su propia ventana.
+#  - Si el servicio de la estación (o otra copia) ya está corriendo, solo abre la ventana.
+#  - Si no, arranca el seguimiento para este usuario (datos en ~/.local/share/sri) y lo detiene al cerrar
+#    la ventana.
+set -u
+
+CONF_USR="${XDG_CONFIG_HOME:-$HOME/.config}/sri/config.toml"
+CONF="${SRI_CONFIG:-$([ -f "$CONF_USR" ] && echo "$CONF_USR" || echo /etc/sri/config.toml)}"
+PUERTO="$(grep -oP '^\s*puerto\s*=\s*\K[0-9]+' "$CONF" 2>/dev/null | head -1)"
+PUERTO="${PUERTO:-5000}"
+URL="http://localhost:${PUERTO}/"
+DATOS="${SRI_DATOS:-${XDG_DATA_HOME:-$HOME/.local/share}/sri}"
+PERFIL="${XDG_DATA_HOME:-$HOME/.local/share}/sri-ventana"
+mkdir -p "$DATOS" "$PERFIL"
+
+aviso() {   # mensaje visible aunque se abra desde el menú
+  command -v notify-send >/dev/null && notify-send -i sri "SRI" "$1"
+  echo "$1" >&2
+}
+
+# Ya abierta: el navegador le pasa la orden a la ventana existente y esa copia sigue a cargo del seguimiento
+if pgrep -f -- "--user-data-dir=$PERFIL" >/dev/null; then
+  exec "$(command -v chromium || command -v chromium-browser)" --app="$URL" --user-data-dir="$PERFIL"
+fi
+
+# Seguimiento propio: se arranca si nadie más está sirviendo la interfaz (ni el servicio de la estación
+# ni otra copia). Se vigila mientras la ventana esté abierta: si el servidor desaparece o falla, se vuelve a
+# arrancar. Al cerrar la ventana se detiene el que arrancó esta copia.
+PID_SERVIDOR=""
+servidor_ok() { curl -fs -m 3 -o /dev/null "${URL}api/nodes"; }
+asegurar_servidor() {
+  servidor_ok && return 0
+  if [ -z "$PID_SERVIDOR" ] || ! kill -0 "$PID_SERVIDOR" 2>/dev/null; then
+    SRI_DATOS="$DATOS" SRI_CONFIG="$CONF" /opt/sri/sri --http-port "$PUERTO" >>"$DATOS/sri.log" 2>&1 &
+    PID_SERVIDOR=$!
+  fi
+  for _ in $(seq 1 60); do
+    servidor_ok && return 0
+    kill -0 "$PID_SERVIDOR" 2>/dev/null || return 1
+    sleep 0.5
+  done
+  return 1
+}
+detener() { [ -n "$PID_SERVIDOR" ] && kill "$PID_SERVIDOR" 2>/dev/null; true; }
+trap detener EXIT INT TERM
+
+asegurar_servidor || { aviso "No se pudo iniciar SRI. Revisa $DATOS/sri.log"; exit 1; }
+
+NAV="$(command -v chromium || command -v chromium-browser || true)"
+if [ -n "$NAV" ]; then
+  "$NAV" --app="$URL" --user-data-dir="$PERFIL" --class=sri --name=sri --window-size=1400,900 \
+    --no-first-run --noerrdialogs --disable-session-crashed-bubble --disable-features=Translate \
+    --password-store=basic --check-for-update-interval=31536000 &
+else
+  NAV="$(command -v firefox-esr || command -v firefox || true)"
+  [ -z "$NAV" ] && { aviso "Instala Chromium para ver la interfaz: sudo apt install chromium"; exit 1; }
+  mkdir -p "$PERFIL/ff"
+  "$NAV" -no-remote -profile "$PERFIL/ff" --class sri "$URL" &
+fi
+PID_VENTANA=$!
+
+# Mientras la ventana siga abierta, mantener vivo el seguimiento
+while kill -0 "$PID_VENTANA" 2>/dev/null; do
+  sleep 5
+  asegurar_servidor >/dev/null 2>&1 || true
+done

@@ -1,0 +1,30 @@
+#!/bin/bash
+# Modo estación: servicio que arranca con la computadora + pantalla completa al iniciar sesión.
+#   sudo sri-estacion activar      sudo sri-estacion desactivar      sri-estacion estado
+set -eu
+AUTO=/etc/xdg/autostart/sri-kiosco.desktop
+
+case "${1:-estado}" in
+  activar)
+    [ "$(id -u)" = 0 ] || { echo "Usa: sudo sri-estacion activar"; exit 1; }
+    systemctl enable --now sri.service
+    install -m 644 /opt/sri/sri-kiosco.desktop "$AUTO"
+    echo "Modo estación activado: el servicio corre siempre y la pantalla completa se abre al iniciar sesión."
+    echo "Para abrirla ahora: sri-kiosco &"
+    ;;
+  desactivar)
+    [ "$(id -u)" = 0 ] || { echo "Usa: sudo sri-estacion desactivar"; exit 1; }
+    systemctl disable --now sri.service || true
+    rm -f "$AUTO"
+    echo "Modo estación desactivado. SRI queda como programa normal (menú de aplicaciones)."
+    ;;
+  estado)
+    if systemctl is-enabled --quiet sri.service 2>/dev/null; then
+      echo "Modo estación: ACTIVADO ($(systemctl is-active sri.service))"
+    else
+      echo "Modo estación: desactivado (SRI se usa como programa normal)"
+    fi
+    [ -f "$AUTO" ] && echo "Pantalla completa al iniciar sesión: sí" || echo "Pantalla completa al iniciar sesión: no"
+    ;;
+  *) echo "Uso: sri-estacion activar|desactivar|estado"; exit 1 ;;
+esac

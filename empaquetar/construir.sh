@@ -33,16 +33,19 @@ cd "$RAIZ"
 echo "== Paquete .deb"
 PKG="$TRABAJO/deb"
 rm -rf "$PKG"
-mkdir -p "$PKG/DEBIAN" "$PKG/opt" "$PKG/usr/bin" "$PKG/lib/systemd/system" "$PKG/etc/sri" "$PKG/etc/xdg/autostart" \
-         "$PKG/usr/share/applications"
+mkdir -p "$PKG/DEBIAN" "$PKG/opt" "$PKG/usr/bin" "$PKG/lib/systemd/system" "$PKG/etc/sri" \
+         "$PKG/usr/share/applications" "$PKG/usr/share/icons/hicolor/scalable/apps"
 cp -a "$DIST/sri" "$PKG/opt/sri"
-install -m 755 "$AQUI/sri-kiosco" "$PKG/opt/sri/sri-kiosco"
+for x in sri-app sri-kiosco sri-estacion; do
+  install -m 755 "$AQUI/$x" "$PKG/opt/sri/$x"
+  ln -s "/opt/sri/$x" "$PKG/usr/bin/$x"
+done
 ln -s /opt/sri/sri "$PKG/usr/bin/sri"
-ln -s /opt/sri/sri-kiosco "$PKG/usr/bin/sri-kiosco"
+install -m 644 "$AQUI/sri-kiosco.desktop" "$PKG/opt/sri/sri-kiosco.desktop"    # lo usa sri-estacion activar
 install -m 644 "$AQUI/sri.service" "$PKG/lib/systemd/system/sri.service"
 install -m 644 "$AQUI/config.toml" "$PKG/etc/sri/config.toml"
-install -m 644 "$AQUI/sri-kiosco.desktop" "$PKG/etc/xdg/autostart/sri-kiosco.desktop"
-install -m 644 "$AQUI/sri-kiosco.desktop" "$PKG/usr/share/applications/sri-kiosco.desktop"
+install -m 644 "$AQUI/sri.desktop" "$PKG/usr/share/applications/sri.desktop"
+install -m 644 "$AQUI/iconos/sri.svg" "$PKG/usr/share/icons/hicolor/scalable/apps/sri.svg"
 for s in postinst prerm postrm; do install -m 755 "$AQUI/debian/$s" "$PKG/DEBIAN/$s"; done
 echo "/etc/sri/config.toml" > "$PKG/DEBIAN/conffiles"
 chmod -R go-w "$PKG"

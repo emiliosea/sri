@@ -1,5 +1,8 @@
 #!/bin/sh
 set -e
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+  rm -f /etc/xdg/autostart/sri-kiosco.desktop
+fi
 # Los datos en /var/lib/sri se conservan al desinstalar; "purge" los borra.
 if [ "$1" = "purge" ]; then
   rm -rf /var/lib/sri

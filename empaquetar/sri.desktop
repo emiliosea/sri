@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=SRI
+GenericName=Rastreador del nodo LoRa
+Comment=Sistema de Respuesta Inmediata: ubicación, caídas, terreno y clima del nodo RABANITO
+Exec=/opt/sri/sri-app
+Icon=sri
+Terminal=false
+Categories=Utility;Network;
+Keywords=LoRa;MeshCore;GPS;rastreador;
+StartupWMClass=sri
