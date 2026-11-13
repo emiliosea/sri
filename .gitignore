@@ -18,3 +18,5 @@ fotos-terreno/
 empaquetar/.venv-build/
 empaquetar/build/
 empaquetar/dist/
+region/paquetes/
+data/clima/

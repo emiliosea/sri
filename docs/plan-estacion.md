@@ -1,6 +1,7 @@
 # Plan: pasar a programa nativo para la estación al aire libre
 
-Estado: **fase 1 lista** (12 nov 2026), ver [instalacion.md](instalacion.md). Hoy la interfaz corre como servidor Flask + página web; sirve para pruebas,
+Estado: **fases 1 y 3 listas** (13 nov 2026), ver [instalacion.md](instalacion.md). Zona del paquete: Parque La
+Huasteca (Santa Catarina, N.L.) y la zona metropolitana. Hoy la interfaz corre como servidor Flask + página web; sirve para pruebas,
 pero la estación va a quedar instalada al aire libre, sin nadie atendiéndola.
 
 ## Condiciones de la estación

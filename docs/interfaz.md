@@ -121,6 +121,8 @@ luego "Aplicar". Se guarda en `data/calibracion.json` y se reenvía al nodo en c
 | `GET /api/info` | Información del dispositivo |
 | `POST /api/ping` | Ping al nodo |
 | `GET /api/acel?segundos=60` | Historial de aceleración (gráfica) |
+| `GET /mapa/{z}/{x}/{y}.png` | Mapa base: paquete de región, o OpenStreetMap con internet |
+| `GET /api/region` | ¿Hay internet? y paquetes de región instalados |
 | `GET /api/clima?lat=..&lon=..` | Clima actual, próximas 12 h, datos del día y avisos (Open-Meteo) |
 | `POST /api/gps` `{"encendido": true}` | Enciende o apaga el GPS del nodo (el nodo guarda el ajuste) |
 | `GET /api/impacto/historial` | Eventos guardados |

@@ -15,6 +15,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 8. Información ambiental | 12 nov 2026 | Cuerpos de agua en el terreno y cuáles cruza la ruta |
 | 9. Clima | 12 nov 2026 | Clima en el nodo (Open-Meteo) con avisos para salir a campo |
 | 10. Programa para la estación (fase 1) | 12 nov 2026 | Paquete .deb con servicio systemd y pantalla completa |
+| 11. Sin internet (fase 3) | 13 nov 2026 | Paquete de región de La Huasteca: mapa, relieve, agua y clima guardado |
 
 ---
 
@@ -125,6 +126,18 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 - Guardado seguro ante cortes de luz (escritura atómica con `fsync`).
 - Probado: el programa empaquetado se conectó a RABANITO por Bluetooth y respondió el ping (283 ms).
 - Guía: [instalacion.md](instalacion.md).
+- Después: SRI como **programa de escritorio** (menú de aplicaciones, ventana propia que vigila el seguimiento);
+  el modo estación se activa aparte con `sudo sri-estacion activar`.
+
+## Etapa 11 - Sin internet: paquete de región (13 nov)
+
+- Zona: **Parque La Huasteca** (Santa Catarina) y la zona metropolitana de Monterrey (~45 x 33 km).
+- Mapa propio en blanco y negro dibujado con MapLibre a partir de datos de **Protomaps/OpenStreetMap**
+  (7,026 mosaicos, 75 MB), relieve de AWS Terrain Tiles (645 mosaicos, 56 MB) y 1,531 cuerpos de agua.
+- El servidor usa el paquete primero y la red solo como respaldo: sin internet funcionan el mapa, el relieve,
+  la hoja Terreno, el agua y los cruces de la ruta; la ruta queda en línea recta y el clima usa el último
+  pronóstico guardado.
+- Probado simulando la falta de internet (`SRI_SIN_INTERNET=1`) con el programa en código y empaquetado.
 
 ---
 

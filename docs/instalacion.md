@@ -13,12 +13,12 @@ empaquetar/construir.sh
 
 Crea:
 - `empaquetar/dist/sri/` - el programa (Python y dependencias incluidos, ~60 MB).
-- `empaquetar/dist/sri_0.1.2_amd64.deb` - el paquete para instalar (~21 MB).
+- `empaquetar/dist/sri_0.2.0_amd64.deb` - el paquete para instalar (~21 MB).
 
 ## Instalar
 
 ```bash
-sudo apt install ./sri_0.1.2_amd64.deb
+sudo apt install ./sri_0.2.0_amd64.deb
 ```
 
 Queda como **un programa más**: aparece **SRI** (con su ícono) en el menú de aplicaciones. Al abrirlo arranca el
@@ -68,6 +68,50 @@ cp -rn data/. ~/.local/share/sri/                                              #
 sudo cp data/*.json data/*.jsonl /var/lib/sri/ && sudo chown -R sri:sri /var/lib/sri   # modo estación
 ```
 
+## Paquete de región (sin internet)
+
+Fase 3: mapa, relieve y cuerpos de agua de la zona guardados en la computadora. Se prepara **con internet** en
+cualquier computadora y se copia a la estación.
+
+```bash
+uv pip install -p .venv -r region/requirements.txt       # una vez (librería pmtiles)
+.venv/bin/python region/construir_region.py huasteca      # ~15 min; se puede repetir, reusa lo descargado
+```
+
+Zona `huasteca`: Parque La Huasteca (Santa Catarina) y la zona metropolitana de Monterrey,
+25.50 a 25.80 N, 100.15 a 100.60 O (~45 x 33 km).
+
+| Archivo | Contenido | Tamaño |
+|---|---|---|
+| `mapa.mbtiles` | Mapa en blanco y negro, zoom 8 a 16 (más cerca se amplía el 16) | ~75 MB |
+| `relieve.mbtiles` | Elevación (AWS Terrain Tiles), zoom 6 a 14 | ~56 MB |
+| `agua.json` | Cuerpos de agua de OpenStreetMap (~1,500) | ~1 MB |
+| `region.json` | Nombre, recuadro y fechas | |
+
+(`vector.mbtiles` son los datos de Protomaps con los que se dibuja el mapa; no hace falta copiarlo.)
+
+Copiar `region/paquetes/huasteca/` (sin `vector.mbtiles` ni `.chromium`) a:
+- programa de escritorio: `~/.local/share/sri/region/huasteca/`
+- modo estación: `/var/lib/sri/region/huasteca/` (y `sudo chown -R sri:sri /var/lib/sri/region`)
+
+Cómo se arma: los datos del mapa se leen por partes del mapa mundial de **Protomaps** (hecho con
+OpenStreetMap) solo para el recuadro, y se dibujan con **MapLibre** en un Chromium sin ventana con el estilo
+`region/herramientas/estilo.json`. No se descargan en masa los mosaicos de tile.openstreetmap.org (sus reglas lo
+prohíben).
+
+Con el paquete, sin internet:
+
+| Función | Sin internet |
+|---|---|
+| Mapa (hojas Mapa y Terreno) | Del paquete dentro de la zona; fuera de ella, en blanco |
+| Relieve, alturas, curvas, perfil | Del paquete |
+| Cuerpos de agua y cruces de la ruta | Del paquete |
+| Ruta | Línea recta con aviso (la ruta por calles necesita conexión) |
+| Clima | Último pronóstico guardado (`<datos>/clima/`), marcado con su antigüedad; los avisos se recalculan con la hora actual |
+
+La barra de estado muestra **SIN INTERNET | usando paquete: ...** cuando no hay conexión. Con internet, fuera de
+la zona se usa OpenStreetMap como antes. Para probar sin desconectar la red: `SRI_SIN_INTERNET=1`.
+
 ## Uso diario
 
 | Acción | Comando |
@@ -91,5 +135,4 @@ temporal, `fsync` y renombrar) para no corromperse si se corta la luz.
 ## Pendiente (siguientes fases)
 
 - Fase 2: acceso desde la red local con contraseña y página de estado de salud.
-- Fase 3: funcionamiento sin internet (paquete de región de la Huasteca con mapa, relieve y agua).
 - Fase 4: rutas sin internet. Fase 5: Raspberry Pi (ARM64).

@@ -102,6 +102,8 @@
                          font-weight: 700; padding: 3px 10px; cursor: pointer; }
   #mine .gpsOff .sub { color: var(--fg-2); }
   #sbGps { color: var(--red); font-weight: 700; }
+  #sbRed.off { color: var(--red); font-weight: 700; }
+  #clima .antiguo { color: var(--red); font-size: 12px; margin-top: 4px; }
   /* ---------- Detector de caídas (foco) ---------- */
   .foco { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: middle;
           background: var(--gray-mark); border: 1px solid var(--fg-3); margin-left: 6px; flex-shrink: 0; }
@@ -606,6 +608,7 @@
   <span id="sbEstado">Listo</span>
   <span id="connSummary">--</span>
   <span id="sbGps"></span>
+  <span id="sbRed"></span>
   <span id="sbClima"></span>
   <span id="sbBat"></span>
   <span id="sbAcel"></span>
@@ -635,7 +638,7 @@ const POLL_MS = 3000;
 
 const map = L.map('map', { zoomControl: false }).setView([25.66, -100.42], 13);
 L.control.zoom({ zoomInText: '+', zoomOutText: '-' }).addTo(map);  // botones de zoom en ASCII
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+L.tileLayer('/mapa/{z}/{x}/{y}.png', {   // paquete de región sin internet; si no, OpenStreetMap
   maxZoom: 19, attribution: '&copy; OpenStreetMap'
 }).addTo(map);
 
@@ -801,6 +804,20 @@ async function actualizarClima(forzar) {
   renderClima();
 }
 
+// Internet y paquete de región: aviso en la barra de estado
+async function revisarRed() {
+  try {
+    const r = await (await fetch('/api/region')).json();
+    const el = document.getElementById('sbRed');
+    const reg = r.regiones.map(x => x.nombre).join(', ');
+    el.className = r.internet ? '' : 'off';
+    el.textContent = r.internet ? (reg ? `Región: ${reg}` : '') : `SIN INTERNET${reg ? ' | usando paquete: ' + reg : ''}`;
+    el.title = r.internet ? 'Con internet' : 'Sin internet: mapa, relieve y agua salen del paquete de región';
+  } catch (e) { /* el servidor no responde: ya lo indica el estado */ }
+}
+revisarRed();
+setInterval(revisarRed, 30000);
+
 // ¿Se espera lluvia o tormenta en las próximas 12 h? (para el aviso de cruces de agua)
 function climaLluvioso() {
   if (!clima) return null;
@@ -820,6 +837,7 @@ function renderClima() {
   card.classList.toggle('aviso', avisos.some(x => x.nivel === 'alto'));
   const horas = clima.horas.slice(0, 12);
   el.innerHTML = `
+    ${clima.antiguo ? `<div class="antiguo">[!] ${esc(clima.motivo || 'Sin conexión')}: pronóstico guardado hace ${clima.horas_antiguedad} h</div>` : ''}
     <div class="cl1"><b>${a.temp_c.toFixed(0)} °C</b><span>${esc(a.descripcion)}</span></div>
     <div class="sub">Sensación ${a.sensacion_c.toFixed(0)} °C | humedad ${a.humedad} % | hoy ${d.min_c.toFixed(0)}-${d.max_c.toFixed(0)} °C</div>
     <div class="sub">Viento ${a.viento_kmh.toFixed(0)} km/h del ${a.viento_de}, ráfagas ${a.rafagas_kmh.toFixed(0)} km/h | nubes ${a.nubes} %${vis}</div>
@@ -1493,7 +1511,7 @@ function planoInit() {
   planoLienzo = L.canvas({ padding: 0.2 });
   L.control.zoom({ zoomInText: '+', zoomOutText: '-' }).addTo(tPlano);
   L.control.scale({ imperial: false }).addTo(tPlano);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(tPlano);
+  L.tileLayer('/mapa/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(tPlano);   // paquete de región o OpenStreetMap
 }
 function actualizarPlano(ajustar) {
   if (!tPlano) return;
@@ -1881,7 +1899,7 @@ function pisoTile(z, x, y, oscuro) {
     g.drawImage(img, 0, 0);
     ent.cv = c; ent.listo = true; redibujarMalla();
   };
-  img.src = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+  img.src = `/mapa/${z}/${x}/${y}.png`;
   return ent;
 }
 let redibujoPend = false;

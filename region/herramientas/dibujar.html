@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="/maplibre/maplibre-gl.css">
+<script src="/maplibre/maplibre-gl.js"></script>
+<style>html,body{margin:0;background:#fff} #m{width:1536px;height:1536px}</style></head>
+<body><div id="m"></div>
+<script>
+// Dibuja bloques de 4x4 mosaicos (con 1 mosaico de margen para que los nombres no se corten en las orillas)
+// y los manda al constructor, que los recorta en mosaicos de 256 px.
+(async () => {
+  const BL = 4, PAD = 1, N = BL + 2 * PAD;
+  const estilo = await (await fetch('/estilo.json')).json();
+  const abs = u => location.origin + u;
+  estilo.glyphs = abs(estilo.glyphs);
+  estilo.sources.pm.tiles = estilo.sources.pm.tiles.map(abs);
+  const trabajos = await (await fetch('/trabajos')).json();
+  const map = new maplibregl.Map({ container: 'm', style: estilo, interactive: false, preserveDrawingBuffer: true,
+    fadeDuration: 0, attributionControl: false, pixelRatio: 1, center: [0, 0], zoom: 1 });
+  const log = m => fetch('/log', { method: 'POST', body: JSON.stringify({ m: String(m) }) });
+  map.on('error', e => log('maplibre: ' + (e.error && e.error.message || e.message || e)));
+  await new Promise(r => map.once('load', r));
+  log('estilo cargado; ' + trabajos.length + ' bloques');
+  const aLonLat = (tx, ty, z) => {
+    const n = 2 ** z;
+    return [tx / n * 360 - 180, Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / n))) * 180 / Math.PI];
+  };
+  let i = 0;
+  for (const t of trabajos) {
+    const c = aLonLat(t.x0 - PAD + N / 2, t.y0 - PAD + N / 2, t.z);
+    // esperar a que termine de dibujar (máx. 20 s por bloque)
+    await new Promise(r => { const to = setTimeout(() => { log('sin idle en bloque ' + JSON.stringify(t)); r(); }, 20000);
+      map.once('idle', () => { clearTimeout(to); r(); }); map.jumpTo({ center: c, zoom: t.z - 1 }); map.triggerRepaint(); });
+    const png = map.getCanvas().toDataURL('image/png');
+    await fetch('/bloque', { method: 'POST', body: JSON.stringify({ ...t, pad: PAD, n: N, png }) });
+    if (++i % 20 === 0) console.log(`bloque ${i}/${trabajos.length}`);
+  }
+  await fetch('/fin', { method: 'POST', body: '{}' });
+})().catch(e => fetch('/fin', { method: 'POST', body: JSON.stringify({ error: String(e) }) }));
+</script></body></html>

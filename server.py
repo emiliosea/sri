@@ -18,6 +18,7 @@ import time
 from flask import Flask, jsonify, send_from_directory
 
 import sri_config as cfg
+import sri_region as region
 
 app = Flask(__name__, static_folder=cfg.STATIC)
 
@@ -867,6 +868,9 @@ def api_route():
              "distancia_m": round(haversine_m(lat1, lon1, lat2, lon2)), "duracion_s": None}
     if modo == "recta":
         return jsonify(recta)
+    if not region.hay_internet():
+        recta["aviso"] = "Sin internet: se muestra línea recta (la ruta por calles necesita conexión)."
+        return jsonify(recta)
     perfil = "routed-car" if modo == "auto" else "routed-foot"
     url = (f"https://routing.openstreetmap.de/{perfil}/route/v1/driving/"
            f"{lon1:.6f},{lat1:.6f};{lon2:.6f},{lat2:.6f}?overview=full&geometries=geojson")
@@ -879,6 +883,8 @@ def api_route():
         return jsonify({"ok": True, "modo": modo, "coords": coords,
                         "distancia_m": round(rt["distance"]), "duracion_s": round(rt["duration"])})
     except Exception as e:  # noqa: BLE001
+        if isinstance(e, OSError):
+            region.marcar_sin_internet()
         recta["aviso"] = f"No se pudo calcular la ruta por calles ({type(e).__name__}); se muestra línea recta."
         return jsonify(recta)
 
@@ -1021,16 +1027,24 @@ def _terrain_tile(x, y, z=TERRAIN_Z):
     with _tiles_lock:
         if (z, x, y) in _tiles:
             return _tiles[(z, x, y)]
-    req = urllib.request.Request(TERRAIN_URL.format(z=z, x=x, y=y),
-                                 headers={"User-Agent": "rastreador-meshcore/1.0"})
-    for intento in range(3):           # S3 a veces tarda; reintentar
-        try:
-            with urllib.request.urlopen(req, timeout=8) as r:
-                img = Image.open(io.BytesIO(r.read())).convert("RGB")
-            break
-        except OSError:
-            if intento == 2:
-                raise
+    reg = region.region_de_tile(z, x, y)        # primero el paquete de región (sin internet)
+    datos = reg.tile_relieve(z, x, y) if reg else None
+    if datos:
+        img = Image.open(io.BytesIO(datos)).convert("RGB")
+    elif not region.hay_internet():
+        raise OSError("sin internet y fuera del paquete de región")
+    else:
+        req = urllib.request.Request(TERRAIN_URL.format(z=z, x=x, y=y),
+                                     headers={"User-Agent": "rastreador-meshcore/1.0"})
+        for intento in range(3):           # S3 a veces tarda; reintentar
+            try:
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    img = Image.open(io.BytesIO(r.read())).convert("RGB")
+                break
+            except OSError:
+                if intento == 2:
+                    region.marcar_sin_internet()
+                    raise
     img.load()
     with _tiles_lock:
         if len(_tiles) > 200:          # límite de memoria (~50 MB)
@@ -1136,6 +1150,10 @@ def api_terrain_water():
     s, w, n, e = min(la1, la2), min(lo1, lo2), max(la1, la2), max(lo1, lo2)
     if (n - s) * (e - w) > 1.0:
         return jsonify({"ok": False, "error": "Área demasiado grande"}), 400
+    for reg in region.regiones():                 # paquete de región: sin internet y al instante
+        if reg.info()["agua"] and (reg.cubre(s, w, n, e) or (reg.toca(s, w, n, e) and not region.hay_internet())):
+            return jsonify({"ok": True, "agua": reg.agua_en(s, w, n, e), "parcial": not reg.cubre(s, w, n, e),
+                            "fuente": f"© OpenStreetMap (paquete de región: {reg.nombre})"})
     clave = tuple(round(v, 3) for v in (s, w, n, e))
     if clave in _agua_cache:
         return jsonify(_agua_cache[clave])
@@ -1146,6 +1164,29 @@ def api_terrain_water():
         return jsonify(_agua_cache[clave])
     except (OSError, ValueError):
         pass
+    if not region.hay_internet():
+        return jsonify({"ok": False, "error": "Sin internet y el área está fuera del paquete de región"}), 503
+    try:
+        agua = consultar_agua(s, w, n, e)
+    except OSError as ex:
+        region.marcar_sin_internet()
+        return jsonify({"ok": False, "error": f"No se pudo consultar OpenStreetMap ({ex}); se reintentará"}), 502
+    res = {"ok": True, "agua": agua, "fuente": "© OpenStreetMap (Overpass)"}
+    if len(_agua_cache) > 50:
+        _agua_cache.pop(next(iter(_agua_cache)))
+    _agua_cache[clave] = res
+    try:
+        cfg.guardar_json(archivo, res)
+    except OSError:
+        pass
+    return jsonify(res)
+
+
+def consultar_agua(s, w, n, e):
+    """Cuerpos de agua de OpenStreetMap (Overpass) en el recuadro. También lo usa region/construir_region.py."""
+    import json
+    import urllib.parse
+    import urllib.request
     bb = f"{s},{w},{n},{e}"
     q = (f'[out:json][timeout:25];('
          f'way["natural"="water"]({bb});relation["natural"="water"]({bb});'
@@ -1162,7 +1203,7 @@ def api_terrain_water():
         except Exception as ex:  # noqa: BLE001
             error = type(ex).__name__
     if datos is None:
-        return jsonify({"ok": False, "error": f"No se pudo consultar OpenStreetMap ({error}); se reintentará"}), 502
+        raise OSError(error)
     agua = []
     for el in datos.get("elements", []):
         tags = el.get("tags", {})
@@ -1179,15 +1220,31 @@ def api_terrain_water():
                     continue
                 g = [[round(p["lat"], 6), round(p["lon"], 6)] for p in m["geometry"]]
                 agua.append({"tipo": "area" if _cerrado(g) else "linea", "clase": clase, "nombre": nombre, "coords": g})
-    res = {"ok": True, "agua": agua, "fuente": "© OpenStreetMap (Overpass)"}
-    if len(_agua_cache) > 50:
-        _agua_cache.pop(next(iter(_agua_cache)))
-    _agua_cache[clave] = res
-    try:
-        cfg.guardar_json(archivo, res)
-    except OSError:
-        pass
-    return jsonify(res)
+    return agua
+
+
+# ---------------------------------------------------------------------------
+# Mapa base: del paquete de región (sin internet); fuera de él, OpenStreetMap si hay conexión
+# ---------------------------------------------------------------------------
+@app.route("/mapa/<int:z>/<int:x>/<int:y>.png")
+def api_map_tile(z, x, y):
+    from flask import Response, redirect
+    if not (0 <= z <= 19 and 0 <= x < 2 ** z and 0 <= y < 2 ** z):
+        return Response(status=404)
+    reg = region.region_de_tile(z, x, y)
+    datos = reg.tile_mapa(z, x, y) if reg else None
+    if datos:
+        r = Response(datos, mimetype="image/png")
+        r.headers["Cache-Control"] = "public, max-age=86400"
+        return r
+    if region.hay_internet():
+        return redirect(f"https://tile.openstreetmap.org/{z}/{x}/{y}.png", code=302)
+    return Response(status=404)
+
+
+@app.route("/api/region")
+def api_region():
+    return jsonify({"internet": region.hay_internet(), "regiones": [r.info() for r in region.regiones()]})
 
 
 # ---------------------------------------------------------------------------
@@ -1270,6 +1327,8 @@ def api_weather():
     c = _clima_cache.get(clave)
     if c and time.time() - c[0] < 600:
         return jsonify(c[1])
+    if not region.hay_internet():
+        return _clima_guardado(lat, lon, "Sin internet")
     q = {
         "latitude": lat, "longitude": lon, "timezone": "America/Monterrey", "forecast_hours": 12, "forecast_days": 2,
         "current": "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,"
@@ -1283,7 +1342,10 @@ def api_weather():
         with urllib.request.urlopen(req, timeout=15) as r:
             d = json.load(r)
     except Exception as ex:  # noqa: BLE001
-        return jsonify({"ok": False, "error": f"No se pudo consultar Open-Meteo ({type(ex).__name__})"}), 502
+        import urllib.error
+        if isinstance(ex, OSError) and not isinstance(ex, urllib.error.HTTPError):
+            region.marcar_sin_internet()          # error de red (no una respuesta de error del servicio)
+        return _clima_guardado(lat, lon, f"No se pudo consultar Open-Meteo ({type(ex).__name__})")
     k = d["current"]
     cur = {"hora": k["time"], "temp_c": k["temperature_2m"], "sensacion_c": k["apparent_temperature"],
            "humedad": k["relative_humidity_2m"], "codigo": k["weather_code"],
@@ -1307,6 +1369,44 @@ def api_weather():
     if len(_clima_cache) > 100:
         _clima_cache.pop(next(iter(_clima_cache)))
     _clima_cache[clave] = (time.time(), res)
+    try:                                   # el último pronóstico se guarda para usarlo sin internet
+        cfg.guardar_json(cfg.ruta_datos("clima", f"{lat:.2f}_{lon:.2f}.json"), res)
+    except OSError:
+        pass
+    return jsonify(res)
+
+
+def _clima_guardado(lat, lon, motivo):
+    """Sin conexión: el último pronóstico guardado más cercano (a ~10 km), con la hora actual."""
+    import glob
+    import json
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    mejor, dmin = None, 0.1
+    for f in glob.glob(cfg.ruta_datos("clima", "*.json")):
+        try:
+            la, lo = (float(v) for v in os.path.basename(f)[:-5].split("_"))
+        except ValueError:
+            continue
+        d = abs(la - lat) + abs(lo - lon)
+        if d <= dmin:
+            mejor, dmin = f, d
+    if not mejor:
+        return jsonify({"ok": False, "error": f"{motivo} y no hay un pronóstico guardado para este lugar"}), 503
+    with open(mejor, encoding="utf-8") as f:
+        res = json.load(f)
+    ahora = datetime.now(ZoneInfo("America/Monterrey")).strftime("%Y-%m-%dT%H:%M")
+    # "ahora" sale de la hora del pronóstico que corresponde a este momento (si todavía la cubre)
+    h = next((h for h in res["horas"] if h["hora"][:13] == ahora[:13]), None)
+    cur = dict(res["actual"], hora=ahora)
+    if h:
+        cur.update(temp_c=h["temp_c"], codigo=h["codigo"], descripcion=h["descripcion"],
+                   rafagas_kmh=h["rafagas_kmh"], lluvia_mm=h["lluvia_mm"])
+    dia = res["dia"]
+    cur["es_de_dia"] = bool(dia.get("salida") and dia.get("puesta") and dia["salida"] <= ahora <= dia["puesta"])
+    horas = [x for x in res["horas"] if x["hora"][:13] >= ahora[:13]]
+    res.update(actual=cur, horas=horas, avisos=_avisos_clima(cur, horas, dia), antiguo=True, motivo=motivo,
+               horas_antiguedad=round((time.time() - res.get("consultado", time.time())) / 3600, 1))
     return jsonify(res)
 
 

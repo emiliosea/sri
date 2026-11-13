@@ -21,7 +21,8 @@ con elevación.
 | Terreno 3D (curvas de nivel sobre el mapa), alturas y perfil de la ruta | Funcionando (AWS Terrain Tiles, sin clave) |
 | Información ambiental: cuerpos de agua que cruza la ruta | Funcionando (OpenStreetMap) |
 | Clima en el nodo y avisos (tormenta, lluvia, viento, calor, luz del día) | Funcionando (Open-Meteo) |
-| Programa instalable para la estación (.deb, servicio y pantalla completa) | Fase 1 lista (x86_64); ver [plan](docs/plan-estacion.md) |
+| Programa instalable (.deb): programa de escritorio o modo estación | Listo (x86_64); ver [plan](docs/plan-estacion.md) |
+| Funcionamiento sin internet (paquete de región de La Huasteca) | Listo: mapa, relieve, agua y clima guardado |
 | Radio | 915 MHz (banda permitida en México) |
 | Alertas por la malla LoRa a otros nodos | Pendiente |
 
@@ -61,7 +62,9 @@ server.py                 Servidor web (Flask) y API
 meshcore_source.py        Conexión con el nodo MeshCore (USB / Bluetooth)
 sri_config.py             Rutas de datos, configuración y guardado seguro
 static/index.html         Interfaz web (una sola página; Leaflet en static/vendor/)
+sri_region.py             Paquetes de región y detección de internet
 empaquetar/               Construcción del programa (PyInstaller) y del paquete .deb, servicio systemd
+region/                   Construcción del paquete de región (mapa, relieve, agua) para usar sin internet
 firmware/
   rabanito-acelerometro.patch               Cambios sobre MeshCore v1.18.0
   RABANITO-meshcore-v1.18.0-rabanito-ble.uf2  Firmware Bluetooth listo para flashear
@@ -77,5 +80,6 @@ requirements.txt          Dependencias (requirements.lock: versiones exactas pro
 
 GPL-3.0 (ver [LICENSE](LICENSE)). El firmware parte de [MeshCore](https://github.com/meshcore-dev/MeshCore) (MIT)
 y la interfaz usa [Leaflet](https://leafletjs.com) (BSD-2),
-mapas y cuerpos de agua de © OpenStreetMap (ODbL), elevación de AWS Terrain Tiles y clima de
+mapas y cuerpos de agua de © OpenStreetMap (ODbL) y [Protomaps](https://protomaps.com), fuentes Noto Sans
+(OFL), elevación de AWS Terrain Tiles y clima de
 [Open-Meteo](https://open-meteo.com) (CC BY 4.0).

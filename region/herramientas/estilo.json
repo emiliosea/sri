@@ -1,0 +1,721 @@
+{
+ "version": 8,
+ "name": "SRI blanco y negro",
+ "glyphs": "/fonts/{fontstack}/{range}.pbf",
+ "sources": {
+  "pm": {
+   "type": "vector",
+   "tiles": [
+    "/v/{z}/{x}/{y}.pbf"
+   ],
+   "minzoom": 0,
+   "maxzoom": 15,
+   "attribution": "© OpenStreetMap, Protomaps"
+  }
+ },
+ "layers": [
+  {
+   "id": "fondo",
+   "type": "background",
+   "paint": {
+    "background-color": "#efefef"
+   }
+  },
+  {
+   "id": "tierra",
+   "type": "fill",
+   "source": "pm",
+   "source-layer": "earth",
+   "paint": {
+    "fill-color": "#efefef"
+   }
+  },
+  {
+   "id": "cobertura",
+   "type": "fill",
+   "source": "pm",
+   "source-layer": "landcover",
+   "paint": {
+    "fill-color": [
+     "match",
+     [
+      "get",
+      "kind"
+     ],
+     [
+      "forest",
+      "wood"
+     ],
+     "#dedede",
+     [
+      "grassland",
+      "scrub",
+      "farmland"
+     ],
+     "#e9e9e9",
+     [
+      "barren"
+     ],
+     "#efefef",
+     "#ebebeb"
+    ]
+   }
+  },
+  {
+   "id": "uso",
+   "type": "fill",
+   "source": "pm",
+   "source-layer": "landuse",
+   "paint": {
+    "fill-color": [
+     "match",
+     [
+      "get",
+      "kind"
+     ],
+     [
+      "park",
+      "nature_reserve",
+      "national_park",
+      "protected_area",
+      "forest",
+      "wood",
+      "golf_course",
+      "garden",
+      "cemetery"
+     ],
+     "#e0e0e0",
+     [
+      "industrial",
+      "railway",
+      "airfield",
+      "aerodrome",
+      "military",
+      "quarry"
+     ],
+     "#e6e6e6",
+     [
+      "hospital",
+      "school",
+      "university",
+      "college"
+     ],
+     "#e3e3e3",
+     [
+      "residential",
+      "neighbourhood"
+     ],
+     "#efefef",
+     "#ececec"
+    ],
+    "fill-opacity": 0.9
+   }
+  },
+  {
+   "id": "agua",
+   "type": "fill",
+   "source": "pm",
+   "source-layer": "water",
+   "filter": [
+    "==",
+    [
+     "geometry-type"
+    ],
+    "Polygon"
+   ],
+   "paint": {
+    "fill-color": "#c4c4c4"
+   }
+  },
+  {
+   "id": "agua-lineas",
+   "type": "line",
+   "source": "pm",
+   "source-layer": "water",
+   "filter": [
+    "==",
+    [
+     "geometry-type"
+    ],
+    "LineString"
+   ],
+   "paint": {
+    "line-color": "#b0b0b0",
+    "line-width": [
+     "interpolate",
+     [
+      "linear"
+     ],
+     [
+      "zoom"
+     ],
+     10,
+     0.6,
+     16,
+     [
+      "match",
+      [
+       "get",
+       "kind"
+      ],
+      "river",
+      4,
+      1.6
+     ]
+    ]
+   }
+  },
+  {
+   "id": "edificios",
+   "type": "fill",
+   "source": "pm",
+   "source-layer": "buildings",
+   "minzoom": 14,
+   "paint": {
+    "fill-color": "#d8d8d8",
+    "fill-outline-color": "#c8c8c8"
+   }
+  },
+  {
+   "id": "limites",
+   "type": "line",
+   "source": "pm",
+   "source-layer": "boundaries",
+   "paint": {
+    "line-color": "#9a9a9a",
+    "line-width": 1,
+    "line-dasharray": [
+     3,
+     2
+    ]
+   }
+  },
+  {
+   "id": "sendero",
+   "type": "line",
+   "source": "pm",
+   "source-layer": "roads",
+   "filter": [
+    "==",
+    [
+     "get",
+     "kind"
+    ],
+    "path"
+   ],
+   "minzoom": 12,
+   "paint": {
+    "line-color": "#8a8a8a",
+    "line-width": [
+     "interpolate",
+     [
+      "linear"
+     ],
+     [
+      "zoom"
+     ],
+     12,
+     0.6,
+     16,
+     1.4
+    ],
+    "line-dasharray": [
+     2,
+     1.5
+    ]
+   }
+  },
+  {
+   "id": "ferrocarril",
+   "type": "line",
+   "source": "pm",
+   "source-layer": "roads",
+   "filter": [
+    "==",
+    [
+     "get",
+     "kind"
+    ],
+    "rail"
+   ],
+   "paint": {
+    "line-color": "#9a9a9a",
+    "line-width": 1,
+    "line-dasharray": [
+     4,
+     2
+    ]
+   }
+  },
+  {
+   "id": "calle-borde",
+   "type": "line",
+   "source": "pm",
+   "source-layer": "roads",
+   "minzoom": 12,
+   "filter": [
+    "in",
+    [
+     "get",
+     "kind"
+    ],
+    [
+     "literal",
+     [
+      "minor_road",
+      "other"
+     ]
+    ]
+   ],
+   "layout": {
+    "line-cap": "round",
+    "line-join": "round"
+   },
+   "paint": {
+    "line-color": "#b4b4b4",
+    "line-width": [
+     "interpolate",
+     [
+      "exponential",
+      1.6
+     ],
+     [
+      "zoom"
+     ],
+     12,
+     1.2,
+     16,
+     9
+    ]
+   }
+  },
+  {
+   "id": "avenida-borde",
+   "type": "line",
+   "source": "pm",
+   "source-layer": "roads",
+   "filter": [
+    "==",
+    [
+     "get",
+     "kind"
+    ],
+    "major_road"
+   ],
+   "layout": {
+    "line-cap": "round",
+    "line-join": "round"
+   },
+   "paint": {
+    "line-color": "#8c8c8c",
+    "line-width": [
+     "interpolate",
+     [
+      "exponential",
+      1.6
+     ],
+     [
+      "zoom"
+     ],
+     8,
+     1,
+     16,
+     14
+    ]
+   }
+  },
+  {
+   "id": "autopista-borde",
+   "type": "line",
+   "source": "pm",
+   "source-layer": "roads",
+   "filter": [
+    "==",
+    [
+     "get",
+     "kind"
+    ],
+    "highway"
+   ],
+   "layout": {
+    "line-cap": "round",
+    "line-join": "round"
+   },
+   "paint": {
+    "line-color": "#5c5c5c",
+    "line-width": [
+     "interpolate",
+     [
+      "exponential",
+      1.6
+     ],
+     [
+      "zoom"
+     ],
+     6,
+     1.2,
+     16,
+     17
+    ]
+   }
+  },
+  {
+   "id": "calle",
+   "type": "line",
+   "source": "pm",
+   "source-layer": "roads",
+   "minzoom": 12,
+   "filter": [
+    "in",
+    [
+     "get",
+     "kind"
+    ],
+    [
+     "literal",
+     [
+      "minor_road",
+      "other"
+     ]
+    ]
+   ],
+   "layout": {
+    "line-cap": "round",
+    "line-join": "round"
+   },
+   "paint": {
+    "line-color": "#ffffff",
+    "line-width": [
+     "interpolate",
+     [
+      "exponential",
+      1.6
+     ],
+     [
+      "zoom"
+     ],
+     12,
+     0.4,
+     16,
+     7
+    ]
+   }
+  },
+  {
+   "id": "avenida",
+   "type": "line",
+   "source": "pm",
+   "source-layer": "roads",
+   "filter": [
+    "==",
+    [
+     "get",
+     "kind"
+    ],
+    "major_road"
+   ],
+   "layout": {
+    "line-cap": "round",
+    "line-join": "round"
+   },
+   "paint": {
+    "line-color": "#ffffff",
+    "line-width": [
+     "interpolate",
+     [
+      "exponential",
+      1.6
+     ],
+     [
+      "zoom"
+     ],
+     8,
+     0.4,
+     16,
+     11
+    ]
+   }
+  },
+  {
+   "id": "autopista",
+   "type": "line",
+   "source": "pm",
+   "source-layer": "roads",
+   "filter": [
+    "==",
+    [
+     "get",
+     "kind"
+    ],
+    "highway"
+   ],
+   "layout": {
+    "line-cap": "round",
+    "line-join": "round"
+   },
+   "paint": {
+    "line-color": "#d9d9d9",
+    "line-width": [
+     "interpolate",
+     [
+      "exponential",
+      1.6
+     ],
+     [
+      "zoom"
+     ],
+     6,
+     0.5,
+     16,
+     13
+    ]
+   }
+  },
+  {
+   "id": "nombre-agua-linea",
+   "type": "symbol",
+   "source": "pm",
+   "source-layer": "water",
+   "minzoom": 12,
+   "filter": [
+    "all",
+    [
+     "has",
+     "name"
+    ],
+    [
+     "==",
+     [
+      "geometry-type"
+     ],
+     "LineString"
+    ]
+   ],
+   "layout": {
+    "text-field": [
+     "get",
+     "name"
+    ],
+    "text-font": [
+     "Noto Sans Italic"
+    ],
+    "text-size": 11,
+    "symbol-placement": "line",
+    "text-max-width": 8
+   },
+   "paint": {
+    "text-color": "#6a6a6a",
+    "text-halo-color": "#f4f4f4",
+    "text-halo-width": 1.2
+   }
+  },
+  {
+   "id": "nombre-agua-area",
+   "type": "symbol",
+   "source": "pm",
+   "source-layer": "water",
+   "minzoom": 12,
+   "filter": [
+    "all",
+    [
+     "has",
+     "name"
+    ],
+    [
+     "!=",
+     [
+      "geometry-type"
+     ],
+     "LineString"
+    ]
+   ],
+   "layout": {
+    "text-field": [
+     "get",
+     "name"
+    ],
+    "text-font": [
+     "Noto Sans Italic"
+    ],
+    "text-size": 11,
+    "symbol-placement": "point",
+    "text-max-width": 8
+   },
+   "paint": {
+    "text-color": "#6a6a6a",
+    "text-halo-color": "#f4f4f4",
+    "text-halo-width": 1.2
+   }
+  },
+  {
+   "id": "nombre-calle",
+   "type": "symbol",
+   "source": "pm",
+   "source-layer": "roads",
+   "minzoom": 13,
+   "filter": [
+    "all",
+    [
+     "has",
+     "name"
+    ],
+    [
+     "in",
+     [
+      "get",
+      "kind"
+     ],
+     [
+      "literal",
+      [
+       "highway",
+       "major_road",
+       "minor_road"
+      ]
+     ]
+    ]
+   ],
+   "layout": {
+    "text-field": [
+     "get",
+     "name"
+    ],
+    "text-font": [
+     "Noto Sans Regular"
+    ],
+    "symbol-placement": "line",
+    "text-size": [
+     "interpolate",
+     [
+      "linear"
+     ],
+     [
+      "zoom"
+     ],
+     13,
+     9,
+     16,
+     12
+    ]
+   },
+   "paint": {
+    "text-color": "#444444",
+    "text-halo-color": "#ffffff",
+    "text-halo-width": 1.4
+   }
+  },
+  {
+   "id": "cumbres",
+   "type": "symbol",
+   "source": "pm",
+   "source-layer": "pois",
+   "minzoom": 11,
+   "filter": [
+    "all",
+    [
+     "has",
+     "name"
+    ],
+    [
+     "in",
+     [
+      "get",
+      "kind"
+     ],
+     [
+      "literal",
+      [
+       "peak",
+       "volcano",
+       "saddle"
+      ]
+     ]
+    ]
+   ],
+   "layout": {
+    "text-field": [
+     "concat",
+     "^ ",
+     [
+      "get",
+      "name"
+     ],
+     [
+      "case",
+      [
+       "has",
+       "elevation"
+      ],
+      [
+       "concat",
+       "\n",
+       [
+        "to-string",
+        [
+         "round",
+         [
+          "get",
+          "elevation"
+         ]
+        ]
+       ],
+       " m"
+      ],
+      ""
+     ]
+    ],
+    "text-font": [
+     "Noto Sans Regular"
+    ],
+    "text-size": 10,
+    "text-max-width": 9
+   },
+   "paint": {
+    "text-color": "#3a3a3a",
+    "text-halo-color": "#f4f4f4",
+    "text-halo-width": 1.2
+   }
+  },
+  {
+   "id": "lugares",
+   "type": "symbol",
+   "source": "pm",
+   "source-layer": "places",
+   "filter": [
+    "has",
+    "name"
+   ],
+   "layout": {
+    "text-field": [
+     "get",
+     "name"
+    ],
+    "text-font": [
+     "Noto Sans Medium"
+    ],
+    "text-size": [
+     "match",
+     [
+      "get",
+      "kind"
+     ],
+     "locality",
+     14,
+     "region",
+     13,
+     11
+    ],
+    "text-max-width": 8,
+    "symbol-sort-key": [
+     "get",
+     "min_zoom"
+    ]
+   },
+   "paint": {
+    "text-color": "#222222",
+    "text-halo-color": "#f4f4f4",
+    "text-halo-width": 1.6
+   }
+  }
+ ]
+}
