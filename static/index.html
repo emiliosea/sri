@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rastreador MeshCore</title>
+<title>SRI - Rastreador MeshCore</title>
+<link rel="icon" id="favicon" type="image/svg+xml" href="/static/logo-claro.svg">
 <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
 <script src="/static/vendor/leaflet/leaflet.js"></script>
 <style>
@@ -245,6 +246,8 @@
   #rutaModos { margin: 6px 0; }
   /* =================== Diseño tipo Excel =================== */
   /* Barra de título */
+  #titlebar .tb-izq { display: flex; align-items: center; gap: 6px; }
+  #titlebar .logo { width: 22px; height: 22px; flex: none; }
   #titlebar { display: flex; justify-content: space-between; align-items: center; gap: 8px;
               padding: 6px 12px; background: var(--fg); color: var(--bg); font-size: 13px; }
   #titlebar .sub { color: var(--bg); opacity: .7; }
@@ -368,7 +371,7 @@
 <body>
 <!-- ================= Barra de título ================= -->
 <div id="titlebar">
-  <div><b>Rastreador MeshCore</b> <span class="sub" id="tbNode"></span></div>
+  <div class="tb-izq"><svg class="logo" viewBox="0 0 9 9" shape-rendering="crispEdges" aria-hidden="true"><g fill="currentColor"><rect x="1" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="7" y="1" width="1" height="1"/><rect x="2" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="6" y="2" width="1" height="1"/><rect x="2" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="6" y="3" width="1" height="1"/><rect x="3" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="5" y="4" width="1" height="1"/><rect x="4" y="5" width="1" height="1"/><rect x="4" y="6" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/></g></svg><b>Rastreador MeshCore</b> <span class="sub" id="tbNode"></span></div>
   <div class="tb-right">
     <button id="soundBtn" class="cbtn" title="Sonido en la computadora al hacer ping y con cada alerta">[ Sonido: sí ]</button>
     <button id="themeBtn" title="Cambiar entre modo claro y oscuro">[ Oscuro ]</button>
@@ -713,6 +716,7 @@ const TZ = 'America/Monterrey';
 function applyTheme(dark) {
   document.body.classList.toggle('dark', dark);
   document.getElementById('themeBtn').textContent = dark ? '[ Claro ]' : '[ Oscuro ]';
+  document.getElementById('favicon').href = dark ? '/static/logo-oscuro.svg' : '/static/logo-claro.svg';   // ícono de la ventana
   localStorage.setItem('tema', dark ? 'oscuro' : 'claro');
 }
 applyTheme(localStorage.getItem('tema') === 'oscuro');

@@ -18,7 +18,7 @@ import sys
 EMPAQUETADO = getattr(sys, "frozen", False)
 BASE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(BASE, "static")
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 
 def _leer_config():

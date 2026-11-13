@@ -46,6 +46,7 @@ install -m 644 "$AQUI/sri.service" "$PKG/lib/systemd/system/sri.service"
 install -m 644 "$AQUI/config.toml" "$PKG/etc/sri/config.toml"
 install -m 644 "$AQUI/sri.desktop" "$PKG/usr/share/applications/sri.desktop"
 install -m 644 "$AQUI/iconos/sri.svg" "$PKG/usr/share/icons/hicolor/scalable/apps/sri.svg"
+install -D -m 644 "$AQUI/iconos/sri-symbolic.svg" "$PKG/usr/share/icons/hicolor/symbolic/apps/sri-symbolic.svg"
 for s in postinst prerm postrm; do install -m 755 "$AQUI/debian/$s" "$PKG/DEBIAN/$s"; done
 echo "/etc/sri/config.toml" > "$PKG/DEBIAN/conffiles"
 chmod -R go-w "$PKG"
