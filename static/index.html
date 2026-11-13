@@ -57,8 +57,8 @@
   .hrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .hrow h1 { margin: 0 0 6px; }
   #status { font-size: 13px; display: flex; align-items: center; gap: 6px; }
-  /* Indicadores en pixeles: "círculos" escalonados (rejilla 4x4 y 6x6) con bordes nítidos */
-  .dot { width: 8px; height: 8px; background: var(--fg-3); display: inline-block; clip-path: polygon(25% 0%, 75% 0%, 75% 25%, 100% 25%, 100% 75%, 75% 75%, 75% 100%, 25% 100%, 25% 75%, 0% 75%, 0% 25%, 25% 25%); }
+  /* Indicadores: rectángulos de bordes rectos (estilo LED) */
+  .dot { width: 12px; height: 7px; background: var(--fg-3); display: inline-block; vertical-align: middle; }
   .dot.ok { background: var(--blue); } .dot.err { background: var(--red); }
   #error { font-size: 12px; color: var(--red); margin-top: 4px; }
 
@@ -107,15 +107,15 @@
   #sbRed.off { color: var(--red); font-weight: 700; }
   #clima .antiguo { color: var(--red); font-size: 12px; margin-top: 4px; }
   /* ---------- Detector de caídas (foco) ---------- */
-  .foco { display: inline-block; width: 12px; height: 12px; vertical-align: middle; flex-shrink: 0;
-          background: var(--gray-mark); margin-left: 6px; clip-path: polygon(33.33% 0%, 66.67% 0%, 66.67% 16.67%, 83.33% 16.67%, 83.33% 33.33%, 100% 33.33%, 100% 66.67%, 83.33% 66.67%, 83.33% 83.33%, 66.67% 83.33%, 66.67% 100%, 33.33% 100%, 33.33% 83.33%, 16.67% 83.33%, 16.67% 66.67%, 0% 66.67%, 0% 33.33%, 16.67% 33.33%, 16.67% 16.67%, 33.33% 16.67%); }
+  .foco { display: inline-block; width: 16px; height: 9px; vertical-align: middle; flex-shrink: 0;
+          background: var(--gray-mark); margin-left: 6px; }
   .foco.on { background: var(--red); animation: parpadeo 1s steps(2, start) infinite; }
   .foco.na { background: var(--line); }
   @keyframes parpadeo { 50% { opacity: .35; } }
   #detector { padding: 10px 12px; font-size: 12px; }
   #detector.alarma { background: var(--red-bg); }
   #detector .drow { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-  #detector .drow .foco { margin-left: 0; width: 18px; height: 18px; }
+  #detector .drow .foco { margin-left: 0; width: 22px; height: 12px; }
   #detEstado { font-weight: 700; }
   #detector.alarma #detEstado { color: var(--red); }
   #detDetalle { margin: 4px 0 6px; line-height: 1.5; }
