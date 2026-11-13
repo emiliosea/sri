@@ -1232,6 +1232,9 @@ def api_map_tile(z, x, y):
     if not (0 <= z <= 19 and 0 <= x < 2 ** z and 0 <= y < 2 ** z):
         return Response(status=404)
     reg = region.region_de_tile(z, x, y)
+    # más cerca que el zoom del paquete solo se amplía la imagen: con internet, mejor OpenStreetMap nítido
+    if reg and z > reg.zoom_mapa and region.hay_internet():
+        reg = None
     datos = reg.tile_mapa(z, x, y) if reg else None
     if datos:
         r = Response(datos, mimetype="image/png")

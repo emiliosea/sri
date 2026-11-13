@@ -641,9 +641,13 @@ const POLL_MS = 3000;
 
 const map = L.map('map', { zoomControl: false }).setView([25.66, -100.42], 13);
 L.control.zoom({ zoomInText: '+', zoomOutText: '-' }).addTo(map);  // botones de zoom en ASCII
-L.tileLayer('/mapa/{z}/{x}/{y}.png', {   // paquete de región sin internet; si no, OpenStreetMap
-  maxZoom: 19, attribution: '&copy; OpenStreetMap'
-}).addTo(map);
+// Mapa base: con internet, OpenStreetMap directo (nítido hasta zoom 19); sin internet, el paquete de región
+// (/mapa, que amplía su zoom 16 para acercamientos mayores). revisarRed() cambia la fuente sola.
+const URL_OSM = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', URL_PAQUETE = '/mapa/{z}/{x}/{y}.png';
+let hayInternet = true;
+const urlBase = () => hayInternet ? URL_OSM : URL_PAQUETE;
+const capasBase = [];
+capasBase.push(L.tileLayer(urlBase(), { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map));
 
 const markers = {};       // num -> marcador Leaflet
 let nodes = [];
@@ -817,6 +821,10 @@ async function revisarRed() {
     el.className = r.internet ? '' : 'off';
     el.textContent = r.internet ? (reg ? `Región: ${reg}` : '') : `SIN INTERNET${reg ? ' | usando paquete: ' + reg : ''}`;
     el.title = r.internet ? 'Con internet' : 'Sin internet: mapa, relieve y agua salen del paquete de región';
+    if (r.internet !== hayInternet) {                    // cambió la conexión: cambiar la fuente del mapa
+      hayInternet = r.internet;
+      capasBase.forEach(c => c.setUrl(urlBase()));
+    }
   } catch (e) { /* el servidor no responde: ya lo indica el estado */ }
 }
 revisarRed();
@@ -1514,7 +1522,7 @@ function planoInit() {
   planoLienzo = L.canvas({ padding: 0.2 });
   L.control.zoom({ zoomInText: '+', zoomOutText: '-' }).addTo(tPlano);
   L.control.scale({ imperial: false }).addTo(tPlano);
-  L.tileLayer('/mapa/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(tPlano);   // paquete de región o OpenStreetMap
+  capasBase.push(L.tileLayer(urlBase(), { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(tPlano));
 }
 function actualizarPlano(ajustar) {
   if (!tPlano) return;

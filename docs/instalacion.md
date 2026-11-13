@@ -13,12 +13,12 @@ empaquetar/construir.sh
 
 Crea:
 - `empaquetar/dist/sri/` - el programa (Python y dependencias incluidos, ~60 MB).
-- `empaquetar/dist/sri_0.2.5_amd64.deb` - el paquete para instalar (~21 MB).
+- `empaquetar/dist/sri_0.2.6_amd64.deb` - el paquete para instalar (~21 MB).
 
 ## Instalar
 
 ```bash
-sudo apt install ./sri_0.2.5_amd64.deb
+sudo apt install ./sri_0.2.6_amd64.deb
 ```
 
 Queda como **un programa más**: aparece **SRI** (con su ícono) en el menú de aplicaciones. Al abrirlo arranca el
@@ -109,8 +109,9 @@ Con el paquete, sin internet:
 | Ruta | Línea recta con aviso (la ruta por calles necesita conexión) |
 | Clima | Último pronóstico guardado (`<datos>/clima/`), marcado con su antigüedad; los avisos se recalculan con la hora actual |
 
-La barra de estado muestra **SIN INTERNET | usando paquete: ...** cuando no hay conexión. Con internet, fuera de
-la zona se usa OpenStreetMap como antes. Para probar sin desconectar la red: `SRI_SIN_INTERNET=1`.
+La barra de estado muestra **SIN INTERNET | usando paquete: ...** cuando no hay conexión. **Con internet el mapa
+base es OpenStreetMap** (nítido hasta zoom 19); el paquete se usa solo sin conexión, y la página cambia de fuente
+sola cuando se va o vuelve la red. Para probar sin desconectar la red: `SRI_SIN_INTERNET=1`.
 
 ## Uso diario
 
