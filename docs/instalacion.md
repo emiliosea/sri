@@ -13,12 +13,12 @@ empaquetar/construir.sh
 
 Crea:
 - `empaquetar/dist/sri/` - el programa (Python y dependencias incluidos, ~60 MB).
-- `empaquetar/dist/sri_0.2.2_amd64.deb` - el paquete para instalar (~21 MB).
+- `empaquetar/dist/sri_0.2.4_amd64.deb` - el paquete para instalar (~21 MB).
 
 ## Instalar
 
 ```bash
-sudo apt install ./sri_0.2.2_amd64.deb
+sudo apt install ./sri_0.2.4_amd64.deb
 ```
 
 Queda como **un programa más**: aparece **SRI** (con su ícono) en el menú de aplicaciones. Al abrirlo arranca el
