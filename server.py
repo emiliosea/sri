@@ -118,6 +118,12 @@ class LastSeen:
                 self._save()
         return nodes
 
+    def olvidar(self, num):
+        """Borra un nodo (al quitarlo de la red) para que no siga apareciendo como "visto por última vez"."""
+        with self._lock:
+            if self._data.pop(num, None) is not None:
+                self._save()
+
     def missing(self, nodes):
         """Nodos guardados que no están en la lista actual (p. ej. el nodo está desconectado).
 
@@ -135,6 +141,7 @@ class LastSeen:
 
 
 last_seen = None  # se crea en main() según el modo
+GUARDAR_CONEXION = True  # False en "SRI Demo" (--demo): no cambia la conexión que recuerda el SRI real
 
 
 _uptime_seen = {}  # num -> (uptime, momento en que vimos ese valor)
@@ -465,12 +472,16 @@ class DemoSource:
     mode, target = "demo", None
 
     def stop(self):
-        pass
+        self._stop.set()
 
     CENTER = (25.6600, -100.4200)
 
     def __init__(self, count=5):
         self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._auto = True                 # "agregar automáticamente" los nodos que se escuchen
+        self._pendientes = []             # escuchados pero no agregados (cuando _auto = False)
+        self._siguiente = 6               # número del próximo nodo simulado
         now = int(time.time())
         self._nodes = []
         for i in range(count):
@@ -496,7 +507,7 @@ class DemoSource:
         threading.Thread(target=self._simulate, daemon=True).start()
 
     def _simulate(self):
-        while True:
+        while not self._stop.is_set():
             time.sleep(3)
             now = int(time.time())
             with self._lock:
@@ -520,9 +531,63 @@ class DemoSource:
     def nodes(self):
         with self._lock:
             nodes = last_seen.update(track_positions(track_uptime([normalize(n) for n in self._nodes])))
+        for n in nodes:
+            n["key"], n["base"] = f"{n['num']:064x}", n["num"] == state.get("my_node")
         nodes[0]["impact"] = self._demo_impact()
         nodes[0]["gps_on"] = DemoSource._gps_on
         return nodes
+
+    # ---------------- Red LoRa simulada: el nodo 1 es la base, los demás llegan "por radio" ----------------
+    def _nuevo(self, nombre, corto):
+        now = int(time.time())
+        n = {"num": 0x1000 + self._siguiente,
+             "user": {"id": f"!demo{self._siguiente:04x}", "longName": nombre, "shortName": corto, "hwModel": "T1000-E"},
+             "position": {"latitude": self.CENTER[0] + random.uniform(-0.04, 0.04),
+                          "longitude": self.CENTER[1] + random.uniform(-0.04, 0.04), "altitude": random.randint(550, 900),
+                          "time": now},
+             "deviceMetrics": {"batteryLevel": random.randint(50, 100), "voltage": 4.0, "channelUtilization": 3,
+                               "airUtilTx": 0.5, "uptimeSeconds": random.randint(100, 5000)},
+             "snr": random.uniform(-8, 8), "hopsAway": random.randint(1, 3), "lastHeard": now,
+             "_heading": random.uniform(0, 2 * math.pi)}
+        self._siguiente += 1
+        return n
+
+    def red_info(self):
+        with self._lock:
+            return {"ok": True, "autoagregar": self._auto, "codigo": "meshcore://demo" + "0" * 20 + "base",
+                    "pendientes": [{"key": f"{n['num']:064x}", "nombre": n["user"]["longName"], "tipo": "Companion",
+                                    "escuchado": n["lastHeard"], "lat": n["position"].get("latitude"),
+                                    "lon": n["position"].get("longitude")} for n in self._pendientes]}
+
+    def red_cmd(self, accion, dato=None):
+        with self._lock:
+            if accion == "quitar":
+                antes = len(self._nodes)
+                self._nodes = [n for n in self._nodes if f"{n['num']:064x}" != dato or n["num"] == state.get("my_node")]
+                if len(self._nodes) == antes:
+                    return {"ok": False, "error": "No se encontró el nodo (la base no se puede quitar)"}
+                return {"ok": True, "num": int(dato, 16)}
+            if accion == "agregar":
+                p = next((n for n in self._pendientes if f"{n['num']:064x}" == dato), None)
+                if not p:
+                    return {"ok": False, "error": "Ese nodo ya no está en la lista de escuchados"}
+                self._pendientes.remove(p)
+                self._nodes.append(p)
+                return {"ok": True}
+            if accion == "importar":
+                codigo = (dato or "").strip()
+                if not codigo.startswith("meshcore://") or len(codigo) < 20:
+                    return {"ok": False, "error": "Código no válido: debe empezar con meshcore://"}
+                self._nodes.append(self._nuevo(f"Importado {self._siguiente}", f"I{self._siguiente}"))
+                return {"ok": True}
+            if accion == "anunciar":
+                n = self._nuevo(f"Campo {self._siguiente}", f"C{self._siguiente}")
+                (self._nodes if self._auto else self._pendientes).append(n)    # alguien "contestó" al anuncio
+                return {"ok": True}
+            if accion == "autoagregar":
+                self._auto = bool(dato)
+                return {"ok": True, "autoagregar": self._auto}
+        return {"ok": False, "error": "Acción no válida"}
 
     # Detector de caídas simulado: un evento cada ~45 s (para probar la interfaz)
     _imp = {"available": True, "sensor_ok": True, "active": False, "type": None, "peak_g": None,
@@ -647,8 +712,16 @@ MESHCORE_BLE_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"   # Nordic UART, u
 FIRMWARE = "meshcore"     # "meshcore" (por defecto) o "meshtastic" (con --meshtastic)
 
 
+def abrir_last_seen(mode):
+    """Cada modo guarda sus "vistos por última vez" aparte (la demo no ensucia los datos reales)."""
+    global last_seen
+    last_seen = LastSeen(cfg.ruta_datos("last_seen_demo.json" if mode == "demo" else "last_seen.json"))
+
+
 def make_source(mode, target):
-    """Crea la conexión al nodo según el firmware que tenga."""
+    """Crea la conexión al nodo según el firmware que tenga (o los nodos simulados en modo demo)."""
+    if mode == "demo":
+        return DemoSource()
     if FIRMWARE == "meshcore":
         from meshcore_source import MeshCoreSource
         track = lambda ns: last_seen.update(track_uptime(ns))  # noqa: E731
@@ -663,9 +736,15 @@ def make_source(mode, target):
 
 
 def save_connection(mode, target):
-    import json
-    import os
-    cfg.guardar_json(CONN_FILE, {"mode": mode, "target": target})
+    """Guarda la conexión elegida; al pasar a demo se recuerda la última real para volver a ella."""
+    datos = {"mode": mode, "target": target}
+    if mode == "demo":
+        prev = load_connection() or {}
+        real = prev.get("real") if prev.get("mode") == "demo" else ({"mode": prev["mode"], "target": prev.get("target")}
+                                                                    if prev.get("mode") in ("ble", "serial") else None)
+        if real:
+            datos["real"] = real
+    cfg.guardar_json(CONN_FILE, datos)
 
 
 def load_connection():
@@ -673,7 +752,7 @@ def load_connection():
     try:
         with open(CONN_FILE) as f:
             c = json.load(f)
-        return c if c.get("mode") in ("ble", "serial") else None
+        return c if c.get("mode") in ("ble", "serial", "demo") else None
     except (FileNotFoundError, ValueError):
         return None
 
@@ -1245,6 +1324,31 @@ def api_map_tile(z, x, y):
     return Response(status=404)
 
 
+@app.route("/api/red")
+def api_red():
+    """Red LoRa: nodos escuchados sin agregar, si se agregan solos y el código de la base para compartir."""
+    if not hasattr(source, "red_info"):
+        return jsonify({"ok": False, "error": "Solo disponible con un nodo MeshCore o en modo demo"}), 400
+    return jsonify(source.red_info())
+
+
+@app.route("/api/red", methods=["POST"])
+def api_red_cmd():
+    """{"accion": "quitar"|"agregar"|"importar"|"anunciar"|"autoagregar", "dato": ...}"""
+    from flask import request
+    if not hasattr(source, "red_cmd"):
+        return jsonify({"ok": False, "error": "Solo disponible con un nodo MeshCore o en modo demo"}), 400
+    b = request.get_json(silent=True) or {}
+    accion, dato = b.get("accion"), b.get("dato")
+    if accion in ("quitar", "agregar") and not (isinstance(dato, str) and len(dato) == 64
+                                                 and all(c in "0123456789abcdef" for c in dato.lower())):
+        return jsonify({"ok": False, "error": "Llave de nodo no válida"}), 400
+    r = source.red_cmd(accion, dato)
+    if r.get("ok") and accion == "quitar":
+        last_seen.olvidar(int(dato[:8], 16) if getattr(source, "mode", "") != "demo" else int(dato, 16))
+    return jsonify(r), (200 if r.get("ok") else 400)
+
+
 @app.route("/api/refrescar", methods=["POST"])
 def api_refresh():
     """Botón "Actualizar": revisar internet ya, olvidar el clima guardado en memoria y pedir todo al nodo."""
@@ -1451,8 +1555,11 @@ def api_impact_history():
 
 @app.route("/api/connection")
 def api_connection():
+    guardada = load_connection() or {}
     return jsonify({"mode": getattr(source, "mode", state["mode"]),
                     "target": getattr(source, "target", None),
+                    "real": guardada.get("real") if guardada.get("mode") == "demo" else
+                            ({"mode": guardada["mode"], "target": guardada.get("target")} if guardada.get("mode") else None),
                     "switching": _switch_lock.locked()})
 
 
@@ -1500,7 +1607,7 @@ def api_ble_scan():
 
 @app.route("/api/connect", methods=["POST"])
 def api_connect():
-    """Cambia la conexión sin reiniciar el servidor. Body: {"mode": "ble"|"serial", "target": "..."}"""
+    """Cambia la conexión sin reiniciar el servidor. Body: {"mode": "ble"|"serial"|"demo", "target": "..."}"""
     import re
     from flask import request
     global source
@@ -1512,10 +1619,10 @@ def api_connect():
     elif mode == "serial":
         if target and not re.fullmatch(r"/dev/tty[\w]+", target):
             return jsonify({"ok": False, "error": "Puerto no válido"}), 400
+    elif mode == "demo":
+        target = None
     else:
-        return jsonify({"ok": False, "error": "Modo no válido (usa 'ble' o 'serial')"}), 400
-    if getattr(source, "mode", None) == "demo":
-        return jsonify({"ok": False, "error": "En modo demo no se puede cambiar la conexión"}), 400
+        return jsonify({"ok": False, "error": "Modo no válido (usa 'ble', 'serial' o 'demo')"}), 400
     if not _switch_lock.acquire(blocking=False):
         return jsonify({"ok": False, "error": "Ya se está cambiando la conexión"}), 409
     try:
@@ -1523,8 +1630,16 @@ def api_connect():
         state.update({"connected": False, "error": "Cambiando de conexión...", "mode": mode})
         old.stop()  # libera el puerto USB o el enlace Bluetooth
         time.sleep(1)
+        if (mode == "demo") != (getattr(old, "mode", None) == "demo"):
+            abrir_last_seen(mode)
+        if mode == "demo":
+            state.update({"connected": True, "error": None, "connected_since": int(time.time())})
+        else:
+            global FIRMWARE
+            FIRMWARE = state.get("firmware") or "meshcore"
         source = make_source(mode, target)
-        save_connection(mode, target)
+        if GUARDAR_CONEXION:
+            save_connection(mode, target)
         print(f"Conexión cambiada a {mode} {target or '(auto)'}", flush=True)
         return jsonify({"ok": True, "mode": mode, "target": target})
     finally:
@@ -1545,11 +1660,10 @@ def main():
                         help="Dirección donde escucha la interfaz (127.0.0.1 = solo esta computadora)")
     parser.add_argument("--version", action="version", version=f"SRI {cfg.VERSION}")
     args = parser.parse_args()
+    demo_por_opcion = args.demo          # --demo al arrancar ("SRI Demo"), no la demo elegida en la interfaz
 
     print(f"SRI {cfg.VERSION} | datos: {cfg.DATOS} | configuración: {cfg.CONFIG_RUTA or '(ninguna)'}", flush=True)
-    global last_seen
     data_dir = cfg.DATOS
-    last_seen = LastSeen(os.path.join(data_dir, "last_seen_demo.json" if args.demo else "last_seen.json"))
 
     global CONN_FILE
     CONN_FILE = os.path.join(data_dir, "connection.json")
@@ -1565,6 +1679,9 @@ def main():
             saved = {"mode": "serial", "target": cfg.conf("nodo", "puerto")}
         if not args.meshtastic and cfg.conf("nodo", "firmware") == "meshtastic":
             args.meshtastic = True
+        if saved and saved["mode"] == "demo":
+            args.demo = True
+            saved = None
         if saved:
             print(f"Usando la última conexión guardada: {saved['mode']} {saved.get('target') or ''}", flush=True)
             if saved["mode"] == "ble":
@@ -1572,6 +1689,9 @@ def main():
             else:
                 args.port = saved.get("target")
 
+    global GUARDAR_CONEXION
+    GUARDAR_CONEXION = not demo_por_opcion
+    abrir_last_seen("demo" if args.demo else "real")
     if args.demo:
         state["mode"] = "demo"
         source = DemoSource()

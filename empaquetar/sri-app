@@ -9,9 +9,11 @@ CONF_USR="${XDG_CONFIG_HOME:-$HOME/.config}/sri/config.toml"
 CONF="${SRI_CONFIG:-$([ -f "$CONF_USR" ] && echo "$CONF_USR" || echo /etc/sri/config.toml)}"
 PUERTO="$(grep -oP '^\s*puerto\s*=\s*\K[0-9]+' "$CONF" 2>/dev/null | head -1)"
 PUERTO="${PUERTO:-5000}"
+# "sri-app --demo": nodos simulados en otro puerto y con su propia ventana, para usarla junto con la real
+DEMO=0; EXTRA=(); CLASE=sri; [ "${1:-}" = "--demo" ] && { DEMO=1; PUERTO=$((PUERTO + 1)); EXTRA=(--demo); CLASE=sri-demo; }
 URL="http://localhost:${PUERTO}/"
 DATOS="${SRI_DATOS:-${XDG_DATA_HOME:-$HOME/.local/share}/sri}"
-PERFIL="${XDG_DATA_HOME:-$HOME/.local/share}/sri-ventana"
+PERFIL="${XDG_DATA_HOME:-$HOME/.local/share}/sri-ventana$([ "$DEMO" = 1 ] && echo -demo)"
 mkdir -p "$DATOS" "$PERFIL"
 
 aviso() {   # mensaje visible aunque se abra desde el menú
@@ -32,7 +34,7 @@ servidor_ok() { curl -fs -m 3 -o /dev/null "${URL}api/nodes"; }
 asegurar_servidor() {
   servidor_ok && return 0
   if [ -z "$PID_SERVIDOR" ] || ! kill -0 "$PID_SERVIDOR" 2>/dev/null; then
-    SRI_DATOS="$DATOS" SRI_CONFIG="$CONF" /opt/sri/sri --http-port "$PUERTO" >>"$DATOS/sri.log" 2>&1 &
+    SRI_DATOS="$DATOS" SRI_CONFIG="$CONF" /opt/sri/sri --http-port "$PUERTO" "${EXTRA[@]}" >>"$DATOS/sri$([ "$DEMO" = 1 ] && echo -demo).log" 2>&1 &
     PID_SERVIDOR=$!
   fi
   for _ in $(seq 1 60); do
@@ -49,7 +51,7 @@ asegurar_servidor || { aviso "No se pudo iniciar SRI. Revisa $DATOS/sri.log"; ex
 
 NAV="$(command -v chromium || command -v chromium-browser || true)"
 if [ -n "$NAV" ]; then
-  "$NAV" --app="$URL" --user-data-dir="$PERFIL" --class=sri --name=sri --window-size=1400,900 \
+  "$NAV" --app="$URL" --user-data-dir="$PERFIL" --class="$CLASE" --name="$CLASE" --window-size=1400,900 \
     --no-first-run --noerrdialogs --disable-session-crashed-bubble --disable-features=Translate \
     --password-store=basic --check-for-update-interval=31536000 &
 else

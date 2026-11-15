@@ -17,6 +17,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 10. Programa para la estación (fase 1) | 12 nov 2026 | Paquete .deb con servicio systemd y pantalla completa |
 | 11. Sin internet (fase 3) | 13 nov 2026 | Paquete de región de La Huasteca: mapa, relieve, agua y clima guardado |
 | 12. Actualizaciones y "Actualizar todo" | 14 nov 2026 | Repositorio apt firmado (sudo apt upgrade) y botón para refrescar todo |
+| 13. Modos y Red LoRa | 15 nov 2026 | Tiempo real / Demo desde la interfaz; agregar y quitar nodos de la red LoRa |
 
 ---
 
@@ -150,6 +151,17 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
   quedaba mostrando datos de "sin internet".
 - Programa: barra de título solo con el logo y "SRI", indicadores rectangulares y mapa nítido con internet
   (OpenStreetMap; el paquete de región solo sin conexión).
+
+## Etapa 13 - Modos Tiempo real / Demo y Red LoRa (15 nov)
+
+- **Modos**: selector Tiempo real / Demo en la cinta Conexión, etiqueta EN VIVO / DEMO en la barra de título y
+  entrada **SRI Demo** en el menú (puerto 5001, ventana propia). Al volver de la demo se reconecta a la última
+  conexión real.
+- **Red LoRa**: RABANITO queda como base y los demás nodos llegan por radio como contactos de MeshCore. Se pueden
+  agregar (anunciar la base, código `meshcore://`, aceptar nodos escuchados), quitar y elegir como destino de la
+  ruta, el clima y el terreno.
+- Probado en modo demo; las funciones con el nodo real (contactos de MeshCore) quedan por probar con RABANITO y
+  un segundo nodo.
 
 ---
 

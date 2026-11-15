@@ -50,6 +50,8 @@ class MeshCoreSource:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._despertar = threading.Event()   # "Actualizar": no esperar el siguiente intento de conexión
+        self._pendientes = {}       # llave -> nodo escuchado por LoRa pero no agregado (modo "agregar a mano")
+        self._codigo = None         # código meshcore:// de la base para compartir
         self._cache = {"self": None, "contacts": [], "device": {}, "custom": {}}
         self._pos_rx = None         # cuándo llegó la última posición GPS válida
         self._impact = None         # estado del detector de caídas (firmware v1.18.0-rabanito)
@@ -149,6 +151,8 @@ class MeshCoreSource:
                     custom = await self._cmd(c.get_custom_vars()) or {}
                     with self._lock:
                         self._cache["device"], self._cache["custom"] = dev, custom
+                    from meshcore import EventType
+                    self.mc.subscribe(EventType.NEW_CONTACT, self._nodo_escuchado)
                     if self.calibration:   # la calibración vive en la RAM del nodo: reenviarla
                         await self._cmd(c.set_custom_var("acc_cal", self.calibration))
                     await self._poll()
@@ -267,6 +271,88 @@ class MeshCoreSource:
                 "threshold_g": imp.get("threshold_g"),
                 "available": bool(imp.get("available")) and bool(imp.get("sensor_ok"))}
 
+    # ---------------- Red LoRa: nodos que la base (RABANITO) conoce como contactos ----------------
+    async def _nodo_escuchado(self, ev):
+        """Con "agregar a mano", el nodo avisa de cada nodo nuevo que escucha; queda en la lista de pendientes."""
+        ct = dict(ev.payload or {})
+        if ct.get("public_key"):
+            ct["_escuchado"] = int(time.time())
+            with self._lock:
+                self._pendientes[ct["public_key"]] = ct
+
+    def _ejecutar(self, coro_fn, timeout=15):
+        if self.mc is None or self.loop is None:
+            return None, "No hay conexión con el nodo"
+        try:
+            return asyncio.run_coroutine_threadsafe(coro_fn(), self.loop).result(timeout), None
+        except Exception as e:  # noqa: BLE001
+            return None, f"El nodo no respondió ({type(e).__name__})"
+
+    def red_info(self):
+        if self.mc is None:
+            return {"ok": False, "error": "No hay conexión con el nodo"}
+        if self._codigo is None:
+            async def exportar():
+                return await self._cmd(self.mc.commands.export_contact())
+            r, _ = self._ejecutar(exportar, 10)
+            self._codigo = (r or {}).get("uri") if isinstance(r, dict) else None
+        with self._lock:
+            pend = [{"key": k, "nombre": c.get("adv_name") or k[:8],
+                     "tipo": {1: "Companion", 2: "Repetidor", 3: "Sala", 4: "Sensor"}.get(c.get("type"), "?"),
+                     "escuchado": c.get("_escuchado"), "lat": c.get("adv_lat") or None, "lon": c.get("adv_lon") or None}
+                    for k, c in self._pendientes.items()]
+        manual = (self.mc.self_info or {}).get("manual_add_contacts")
+        return {"ok": True, "autoagregar": None if manual is None else not manual, "codigo": self._codigo,
+                "pendientes": pend}
+
+    def red_cmd(self, accion, dato=None):
+        c = self.mc.commands if self.mc else None
+
+        async def releer():
+            contacts = await self._cmd(c.get_contacts())
+            if contacts is not None:
+                with self._lock:
+                    self._cache["contacts"] = list(contacts.values())
+
+        async def hacer():
+            if accion == "quitar":
+                r = await self._cmd(c.remove_contact(dato))
+            elif accion == "agregar":
+                with self._lock:
+                    ct = self._pendientes.get(dato)
+                if not ct:
+                    return "Ese nodo ya no está en la lista de escuchados"
+                r = await self._cmd(c.add_contact({k: v for k, v in ct.items() if not k.startswith("_")}))
+                if r is not None:
+                    with self._lock:
+                        self._pendientes.pop(dato, None)
+            elif accion == "importar":
+                codigo = (dato or "").strip()
+                hexa = codigo.split("://", 1)[1] if "://" in codigo else codigo
+                try:
+                    datos = bytes.fromhex(hexa)
+                except ValueError:
+                    return "Código no válido: debe ser meshcore://seguido de números hexadecimales"
+                r = await self._cmd(c.import_contact(datos))
+            elif accion == "anunciar":
+                r = await self._cmd(c.send_advert(flood=True))
+            elif accion == "autoagregar":
+                r = await self._cmd(c.set_manual_add_contacts(not bool(dato)))
+                await self._cmd(c.send_appstart())         # vuelve a leer self_info con el ajuste nuevo
+            else:
+                return "Acción no válida"
+            if r is None:
+                return "El nodo rechazó la operación"
+            await releer()
+            return None
+
+        if c is None:
+            return {"ok": False, "error": "No hay conexión con el nodo"}
+        error, falla = self._ejecutar(hacer)
+        if falla or error:
+            return {"ok": False, "error": falla or error}
+        return {"ok": True}
+
     def refrescar(self, timeout=20):
         """Botón "Actualizar": hora de la PC al nodo y lectura completa ya. Sin conexión: reintentar de inmediato."""
         if self.loop is None:
@@ -362,7 +448,7 @@ class MeshCoreSource:
         mv = s["battery_mv"] or (s["volt"] * 1000 if s["volt"] else None)
         name = me.get("name") or "?"
         out = [{
-            "num": num_from_key(me["public_key"]), "id": me["public_key"][:12],
+            "num": num_from_key(me["public_key"]), "id": me["public_key"][:12], "key": me["public_key"], "base": True,
             "long_name": name, "short_name": name[:4].upper(), "hw_model": dev.get("model"),
             "lat": s["lat"], "lon": s["lon"], "altitude": s["alt"],
             "position_time": self._pos_rx, "position_rx": self._pos_rx,
@@ -381,7 +467,8 @@ class MeshCoreSource:
             ok = valid(lat, lon)
             nm = ct.get("adv_name") or key[:8]
             out.append({
-                "num": num_from_key(key), "id": key[:12], "long_name": nm, "short_name": nm[:4].upper(),
+                "num": num_from_key(key), "id": key[:12], "key": key, "base": False,
+                "long_name": nm, "short_name": nm[:4].upper(),
                 "hw_model": {1: "Companion", 2: "Repetidor", 3: "Sala", 4: "Sensor"}.get(ct.get("type"), "?"),
                 "lat": lat if ok else None, "lon": lon if ok else None, "altitude": None,
                 "position_time": ct.get("last_advert") if ok else None,

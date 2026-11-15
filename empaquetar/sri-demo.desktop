@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SRI Demo
+GenericName=Rastreador (nodos simulados)
+Comment=SRI con nodos simulados para probar la interfaz sin hardware
+Exec=/opt/sri/sri-app --demo
+Icon=sri
+Terminal=false
+Categories=Utility;Network;
+StartupWMClass=sri-demo

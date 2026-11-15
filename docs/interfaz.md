@@ -18,6 +18,11 @@ Interfaz web organizada **al estilo Excel**. Las capturas son del modo demo (nod
 Colores: blanco y negro, **azul** para lo resaltado (este nodo, en vivo, OK) y **rojo** para alertas. Todas las
 horas en CST (Monterrey).
 
+**Modos: Tiempo real y Demo.** En la cinta **Conexión -> Modo** se elige entre el nodo real y los nodos simulados;
+la barra de título muestra **EN VIVO** o **DEMO**. La elección se recuerda; al volver a Tiempo real se reconecta a la
+última conexión real (USB o Bluetooth). Además hay una entrada **SRI Demo** en el menú de aplicaciones que abre la
+demo en su propia ventana (puerto 5001) sin tocar al SRI real.
+
 **Actualizar todo** (cinta Inicio): vuelve a revisar si hay internet y pide de nuevo todo: al nodo (le pone la hora
 de la PC y lee telemetría, batería, GPS y detector; si estaba desconectado, reintenta la conexión de inmediato), el
 clima, la ruta por calles, la información del dispositivo, el terreno y el agua. Se hace solo cuando vuelve
@@ -71,6 +76,24 @@ la altura exacta de cada punto (`POST /api/elevacion`, zoom 14, ~9 m por píxel)
 Monterrey (534 m) y el Cerro de la Silla (~1,750 m).
 
 ![Hoja Terreno](img/interfaz-terreno.png)
+
+## Red LoRa
+
+Hoja **Red LoRa**: la **base** (el nodo conectado a la PC, RABANITO) y los nodos que escucha por radio (sus
+contactos de MeshCore).
+
+| Acción | Qué hace |
+|---|---|
+| **Anunciar la base** | La base manda su anuncio por LoRa; los nodos cercanos la agregan y contestan con el suyo |
+| **Agregar por código** | Pegar el código `meshcore://...` que comparte otro nodo (o la app MeshCore) |
+| **Agregar solos los nodos que se escuchen** | Encendido: todo nodo escuchado se agrega. Apagado: quedan en "Escuchados sin agregar" con su botón **Agregar** |
+| **Copiar código** | El código de la base, para agregarla en otros nodos |
+| **Ver** | Centra el mapa en ese nodo |
+| **Ruta a este nodo** | La ruta, el clima y el terreno apuntan a ese nodo en lugar de a la base (se marca **[ruta]**) |
+| **Quitar** | La base lo borra de sus contactos y SRI olvida su última posición (si vuelve a anunciarse puede regresar) |
+
+La tabla muestra tipo, último anuncio, posición, distancia a la base y saltos. En modo demo el nodo 1 hace de base y
+los demás de nodos por radio (anunciar crea nodos "Campo N").
 
 ## Ubicación y ruta
 
@@ -129,6 +152,8 @@ luego "Aplicar". Se guarda en `data/calibracion.json` y se reenvía al nodo en c
 | `GET /api/acel?segundos=60` | Historial de aceleración (gráfica) |
 | `GET /mapa/{z}/{x}/{y}.png` | Mapa base: paquete de región, o OpenStreetMap con internet |
 | `GET /api/region` | ¿Hay internet? y paquetes de región instalados |
+| `GET /api/red`, `POST /api/red` `{"accion": "quitar"/"agregar"/"importar"/"anunciar"/"autoagregar", "dato": ...}` | Red LoRa: nodos escuchados, código de la base, agregar y quitar nodos |
+| `POST /api/connect` `{"mode": "ble"/"serial"/"demo", "target": ...}` | Cambiar de conexión o de modo (Tiempo real / Demo) |
 | `POST /api/refrescar` | Revisar internet ya, olvidar el clima en memoria y pedir todo al nodo (y ponerle la hora) |
 | `GET /api/clima?lat=..&lon=..` | Clima actual, próximas 12 h, datos del día y avisos (Open-Meteo) |
 | `POST /api/gps` `{"encendido": true}` | Enciende o apaga el GPS del nodo (el nodo guarda el ajuste) |

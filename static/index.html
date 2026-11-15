@@ -249,6 +249,9 @@
   /* Barra de título */
   #titlebar .tb-izq { display: flex; align-items: center; gap: 6px; }
   #titlebar .logo { width: 22px; height: 22px; flex: none; }
+  #modoTag { font-size: 10px; font-weight: 700; letter-spacing: .08em; padding: 1px 6px; margin-left: 6px; }
+  #modoTag.vivo { background: var(--blue); color: #fff; }
+  #modoTag.demo { background: var(--bg); color: var(--fg); outline: 1px dashed var(--bg); }
   #titlebar { display: flex; justify-content: space-between; align-items: center; gap: 8px;
               padding: 6px 12px; background: var(--fg); color: var(--bg); font-size: 13px; }
   #titlebar .sub { color: var(--bg); opacity: .7; }
@@ -314,6 +317,17 @@
   #clima .horas .tor { color: var(--red); font-weight: 700; }
   #climaCard.aviso { border-color: var(--red); }
   #climaCard.aviso .chdr { background: var(--red); color: #fff; }
+  #redBase { font-size: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #redBase code { font-size: 11px; max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                  display: inline-block; vertical-align: middle; background: var(--bg-2); padding: 2px 6px; }
+  .redAgregar { display: flex; gap: 6px; } .redAgregar input { flex: 1; font: inherit; padding: 3px 6px; }
+  .redTit { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-2); margin-top: 6px; }
+  #redMsg { font-size: 12px; } #redMsg.err { color: var(--red); } #redMsg.ok { color: var(--blue); }
+  #redTabla, #redPend { overflow-x: auto; }
+  #redTabla td, #redTabla th, #redPend td, #redPend th { text-align: left; white-space: nowrap; }
+  .redAgregar input { font-size: 12px; }
+  #redTabla tr.objetivo td { background: var(--bg-2); font-weight: 700; }
+  #redTabla button, #redPend button { font: inherit; font-size: 11px; padding: 1px 6px; }
   #ambiental .riesgo { color: var(--red); font-weight: 700; margin-top: 4px; }
   .card.alarma .chdr { background: var(--red); color: #fff; }
   #ruta.alerta { border-color: var(--red); }
@@ -372,7 +386,7 @@
 <body>
 <!-- ================= Barra de título ================= -->
 <div id="titlebar">
-  <div class="tb-izq"><svg class="logo" viewBox="0 0 9 9" shape-rendering="crispEdges" aria-hidden="true"><g fill="currentColor"><rect x="1" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="7" y="1" width="1" height="1"/><rect x="2" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="6" y="2" width="1" height="1"/><rect x="2" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="6" y="3" width="1" height="1"/><rect x="3" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="5" y="4" width="1" height="1"/><rect x="4" y="5" width="1" height="1"/><rect x="4" y="6" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/></g></svg><b>SRI</b></div>
+  <div class="tb-izq"><svg class="logo" viewBox="0 0 9 9" shape-rendering="crispEdges" aria-hidden="true"><g fill="currentColor"><rect x="1" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="7" y="1" width="1" height="1"/><rect x="2" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="6" y="2" width="1" height="1"/><rect x="2" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="6" y="3" width="1" height="1"/><rect x="3" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="5" y="4" width="1" height="1"/><rect x="4" y="5" width="1" height="1"/><rect x="4" y="6" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/></g></svg><b>SRI</b><span id="modoTag"></span></div>
   <div class="tb-right">
     <button id="soundBtn" class="cbtn" title="Sonido en la computadora al hacer ping y con cada alerta">[ Sonido: sí ]</button>
     <button id="themeBtn" title="Cambiar entre modo claro y oscuro">[ Oscuro ]</button>
@@ -401,6 +415,7 @@
         <button class="cbtn" data-sheet="eventos">Eventos</button>
         <button class="cbtn" data-sheet="dispositivo">Dispositivo</button>
         <button class="cbtn" data-sheet="terreno">Terreno</button>
+        <button class="cbtn" data-sheet="red">Red LoRa</button>
       </div>
       <div class="rlabel">Ver hoja</div>
     </div>
@@ -464,6 +479,13 @@
   </div>
 
   <div class="rbody" data-rib="conexion" hidden>
+    <div class="rgroup">
+      <div class="ritems ctabs">
+        <button id="modoReal" title="Conectar al nodo real (la última conexión USB o Bluetooth usada)">Tiempo real</button>
+        <button id="modoDemo" title="Nodos simulados para probar la interfaz sin hardware">Demo</button>
+      </div>
+      <div class="rlabel">Modo</div>
+    </div>
     <div class="rgroup">
       <div class="ritems ctabs">
         <button id="tabUsb" data-mode="serial">USB</button>
@@ -567,6 +589,26 @@
     <div id="chartMsg"></div>
     <div id="chartTable" style="display:none"></div>
   </div>
+    <div id="redPane" class="sheet" style="display:none">
+      <div class="chead">
+        <div><b>Red LoRa</b> <span class="sub">nodos que la base escucha por radio (contactos de MeshCore)</span></div>
+        <div class="crange">
+          <button class="cbtn" id="redAnunciar" title="La base manda su anuncio por LoRa: los nodos cercanos la agregan y contestan con el suyo">Anunciar la base</button>
+          <label class="sub" title="Si está apagado, los nodos nuevos que se escuchen quedan abajo en 'Escuchados sin agregar'">
+            <input type="checkbox" id="redAuto"> Agregar solos los nodos que se escuchen</label>
+        </div>
+      </div>
+      <div id="redBase"></div>
+      <div class="redAgregar">
+        <input id="redCodigo" placeholder="meshcore://...  (código compartido desde otro nodo o desde la app MeshCore)">
+        <button class="cbtn primary" id="redImportar">Agregar por código</button>
+      </div>
+      <div id="redMsg"></div>
+      <div class="redTit">Nodos en la red</div>
+      <div id="redTabla" class="grid"></div>
+      <div class="redTit">Escuchados sin agregar</div>
+      <div id="redPend" class="grid"></div>
+    </div>
     <div id="eventsPane" class="sheet" style="display:none">
       <div class="chead">
         <div><b>Eventos del detector</b> <span class="sub">caídas y golpes que alertaron (guardados en data/impactos.jsonl)</span></div>
@@ -604,6 +646,7 @@
       <button data-tab="eventos">Eventos</button>
       <button data-tab="dispositivo">Dispositivo</button>
       <button data-tab="terreno">Terreno</button>
+      <button data-tab="red">Red LoRa</button>
     </div>
   </div>
 </div>
@@ -905,6 +948,112 @@ function renderClima() {
   document.getElementById('sbClima').textContent = `${a.temp_c.toFixed(0)} °C ${a.descripcion}`;
 }
 
+// ---------------------------------------------------------------------------
+// Hoja "Red LoRa": la base (nodo conectado a la PC) y los nodos que escucha por radio (contactos MeshCore).
+//   Agregar: anunciar la base, pegar el código meshcore:// de otro nodo, o aceptar un nodo escuchado.
+//   Quitar: la base lo borra de sus contactos y SRI olvida su última posición.
+//   "Ruta a este nodo": la ruta, el clima y el terreno apuntan a ese nodo en lugar de a la base.
+// ---------------------------------------------------------------------------
+let redInfo = null;
+const redMsg = (t, c = '') => { const e = document.getElementById('redMsg'); e.textContent = t; e.className = c; };
+async function cargarRed() {
+  try {
+    redInfo = await (await fetch('/api/red')).json();
+  } catch (e) { redInfo = { ok: false, error: 'Sin respuesta del servidor' }; }
+  renderRed();
+}
+async function accionRed(accion, dato, texto) {
+  redMsg(texto + '...');
+  let r;
+  try {
+    r = await (await fetch('/api/red', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                         body: JSON.stringify({ accion, dato }) })).json();
+  } catch (e) { r = { ok: false, error: 'Sin respuesta del servidor' }; }
+  redMsg(r.ok ? texto + ': listo.' : r.error || 'No se pudo', r.ok ? 'ok' : 'err');
+  await poll();
+  await cargarRed();
+  return r;
+}
+const distM = (a, b) => {
+  const R = 6371008.8, rad = Math.PI / 180, dp = (b.lat - a.lat) * rad, dl = (b.lon - a.lon) * rad;
+  const h = Math.sin(dp / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dl / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+function renderRed() {
+  if (sheetActual !== 'red') return;
+  const base = nodes.find(n => n.base) || nodes.find(n => n.num === lastStatus.my_node);
+  const bp = base && posOf(base);
+  const elBase = document.getElementById('redBase');
+  if (redInfo && !redInfo.ok) {
+    elBase.innerHTML = `<span class="err">${esc(redInfo.error || 'No disponible')}</span>`;
+  } else {
+    elBase.innerHTML = base ? `Base: <b>${esc(base.long_name)}</b>` +
+      (redInfo && redInfo.codigo ? ` | código para compartir: <code title="${esc(redInfo.codigo)}">${esc(redInfo.codigo)}</code>
+         <button class="cbtn" id="redCopiar">Copiar código</button>` : '') : '<span class="sub">Sin base conectada</span>';
+    const cp = document.getElementById('redCopiar');
+    if (cp) cp.onclick = () => { navigator.clipboard.writeText(redInfo.codigo); redMsg('Código copiado.', 'ok'); };
+  }
+  const auto = document.getElementById('redAuto');
+  auto.checked = !!(redInfo && redInfo.autoagregar);
+  auto.disabled = !redInfo || redInfo.autoagregar == null;
+  const filas = [...nodes].sort((a, b) => (b.base - a.base) || (b.last_heard || 0) - (a.last_heard || 0)).map(n => {
+    const p = posOf(n);
+    const d = bp && p && !n.base ? fmtDist(Math.round(distM(bp, p))) : '';
+    const esObj = objetivoNum === n.num || (objetivoNum == null && n.base);
+    return `<tr class="${esObj ? 'objetivo' : ''}">
+      <td>${esc(n.long_name)}${n.base ? ' <span class="sub">(base)</span>' : ''}${esObj ? ' <span class="sub">[ruta]</span>' : ''}</td>
+      <td>${esc(n.hw_model || '')}</td>
+      <td>${n.last_heard ? ago(n.last_heard) : '--'}</td>
+      <td>${p ? `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}${p.live ? '' : ' (última)'}` : '<span class="sub">sin posición</span>'}</td>
+      <td>${d}</td>
+      <td>${n.base ? '-' : n.hops_away != null ? n.hops_away : '?'}</td>
+      <td>${p ? `<button data-ver="${n.num}">Ver</button> <button data-ruta="${n.num}">Ruta a este nodo</button>` : ''}
+          ${n.base || !n.key ? '' : ` <button data-quitar="${esc(n.key)}" data-nombre="${esc(n.long_name)}">Quitar</button>`}</td></tr>`;
+  });
+  document.getElementById('redTabla').innerHTML = `<table><tr><th>Nodo</th><th>Tipo</th><th>Último anuncio</th>
+    <th>Posición</th><th>Distancia a la base</th><th>Saltos</th><th></th></tr>${filas.join('')}</table>`;
+  const pend = (redInfo && redInfo.pendientes) || [];
+  document.getElementById('redPend').innerHTML = pend.length ? `<table><tr><th>Nodo</th><th>Tipo</th><th>Escuchado</th><th>Posición</th><th></th></tr>` +
+    pend.map(x => `<tr><td>${esc(x.nombre)}</td><td>${esc(x.tipo)}</td><td>${x.escuchado ? ago(x.escuchado) : '--'}</td>
+      <td>${x.lat != null ? `${(+x.lat).toFixed(5)}, ${(+x.lon).toFixed(5)}` : '--'}</td>
+      <td><button data-agregar="${esc(x.key)}" data-nombre="${esc(x.nombre)}">Agregar</button></td></tr>`).join('') + '</table>'
+    : `<div class="sub">${redInfo && redInfo.autoagregar ? 'Los nodos que se escuchan se agregan solos.' : 'Ninguno por ahora.'}</div>`;
+}
+document.getElementById('redPane').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.ver) {
+    const n = nodes.find(x => x.num === +b.dataset.ver), p = n && posOf(n);
+    if (p) { showSheet('mapa'); map.setView([p.lat, p.lon], 15); selected = n.num; }
+  } else if (b.dataset.ruta) {
+    const num = +b.dataset.ruta, n = nodes.find(x => x.num === num);
+    objetivoNum = n && n.base ? null : num;
+    rutaDestino = null;
+    if (rutaLayer || rutaCoords) trazarRuta(undefined, { ajustar: true, pestana: false });
+    climaClave = null; actualizarClima(true); tClave = null;
+    redMsg(`La ruta, el clima y el terreno ahora apuntan a ${n ? n.long_name : 'la base'}.`, 'ok');
+    renderRed();
+  } else if (b.dataset.quitar) {
+    if (!confirm(`¿Quitar ${b.dataset.nombre} de la red?\n\nLa base lo borra de sus contactos y SRI olvida su última posición. ` +
+                 `Si vuelve a anunciarse, puede volver a aparecer.`)) return;
+    const num = nodes.find(x => x.key === b.dataset.quitar)?.num;
+    if (num === objetivoNum) objetivoNum = null;
+    accionRed('quitar', b.dataset.quitar, `Quitando ${b.dataset.nombre}`);
+  } else if (b.dataset.agregar) {
+    accionRed('agregar', b.dataset.agregar, `Agregando ${b.dataset.nombre}`);
+  }
+});
+document.getElementById('redAnunciar').onclick = () => accionRed('anunciar', null, 'Anunciando la base por LoRa');
+document.getElementById('redImportar').onclick = async () => {
+  const c = document.getElementById('redCodigo').value.trim();
+  if (!c) { redMsg('Pega el código meshcore:// del otro nodo.', 'err'); return; }
+  const r = await accionRed('importar', c, 'Agregando por código');
+  if (r.ok) document.getElementById('redCodigo').value = '';
+};
+document.getElementById('redAuto').onchange = e => accionRed('autoagregar', e.target.checked,
+  e.target.checked ? 'Activando agregar solos' : 'Desactivando agregar solos');
+setInterval(() => { if (sheetActual === 'red') cargarRed(); }, 10000);
+
 // Botón "Encender GPS" del aviso (el recuadro se redibuja en cada lectura, por eso va por delegación)
 let gpsEncendiendo = false;
 document.getElementById('mine').addEventListener('click', async e => {
@@ -1044,6 +1193,7 @@ function render(status) {
   renderBars(status);
   renderMine(status);
   actualizarClima();
+  renderRed();
   autoRuta();
   loadInfo(status);
   renderDetail();
@@ -1348,7 +1498,7 @@ async function trazarRuta(motivo, opts = { ajustar: true, pestana: true }) {
 // Se llama en cada actualización: traza la ruta en cuanto hay posición y la rehace si el nodo se movió
 function autoRuta() {
   if (!rutaAuto || rutaOcupada) return;
-  const me = nodes.find(n => n.num === lastStatus.my_node) || (nodes.length === 1 ? nodes[0] : null);
+  const me = nodoPrincipal();
   const p = me && posOf(me);
   if (!p) return;
   const movio = !rutaDestino || Math.abs(p.lat - rutaDestino[0]) > 1e-4 || Math.abs(p.lon - rutaDestino[1]) > 1e-4;
@@ -1357,7 +1507,7 @@ function autoRuta() {
 }
 
 async function trazarRutaAhora(motivo, opts) {
-  const me = nodes.find(n => n.num === lastStatus.my_node) || (nodes.length === 1 ? nodes[0] : null);
+  const me = nodoPrincipal();
   const p = me && posOf(me);
   const panel = document.getElementById('ruta');
   panel.style.display = 'block';
@@ -1472,7 +1622,12 @@ function abrirTerreno() {
   dibujarMalla();
 }
 
+// Nodo al que apuntan la ruta, el clima y el terreno: el elegido en la hoja Red LoRa ("Ruta a este nodo")
+// o, si no se eligió ninguno, la base (el nodo conectado a la PC).
+let objetivoNum = null;
 function nodoPrincipal() {
+  const obj = objetivoNum != null && nodes.find(n => n.num === objetivoNum);
+  if (obj) return obj;
   return nodes.find(n => n.num === lastStatus.my_node) || (nodes.length === 1 ? nodes[0] : null);
 }
 
@@ -2360,9 +2515,27 @@ $('tabBle').onclick = () => showTab('ble');
 
 function connMsg(text, cls = '') { $('connMsg').textContent = text; $('connMsg').className = cls; }
 
+let conexionReal = null;      // última conexión real (para volver desde la demo)
+function marcarModoConexion(mode) {
+  const demo = mode === 'demo';
+  $('modoReal').classList.toggle('on', !demo && !!mode);
+  $('modoDemo').classList.toggle('on', demo);
+  const tag = $('modoTag');
+  tag.textContent = !mode ? '' : demo ? 'DEMO' : 'EN VIVO';
+  tag.className = !mode ? '' : demo ? 'demo' : 'vivo';
+  tag.title = demo ? 'Nodos simulados: nada de esto es real' : 'Conectado al nodo real';
+}
+$('modoDemo').onclick = () => connect('demo', null);
+$('modoReal').onclick = () => {
+  if (conexionReal && conexionReal.target !== undefined) connect(conexionReal.mode, conexionReal.target);
+  else connMsg('Elige USB o Bluetooth y presiona Conectar.', 'err');
+};
+
 async function loadConnection(selectTab = false) {
   try {
     const c = await (await fetch('/api/connection')).json();
+    marcarModoConexion(c.mode);
+    if (c.real) conexionReal = c.real;
     const label = c.mode === 'ble' ? `Bluetooth (${c.target})`
                 : c.mode === 'serial' ? `USB (${c.target || 'autodetectar'})`
                 : c.mode === 'demo' ? 'Demo' : '--';
@@ -2416,16 +2589,22 @@ $('bleList').onclick = e => {
 };
 
 async function connect(mode, target) {
-  const btns = [$('usbConnect'), $('bleConnect')];
+  const btns = [$('usbConnect'), $('bleConnect'), $('modoReal'), $('modoDemo')];
   btns.forEach(b => b.disabled = true);
-  connMsg(`Cambiando a ${mode === 'ble' ? 'Bluetooth' : 'USB'}... (por Bluetooth tarda ~30 s)`);
+  connMsg(mode === 'demo' ? 'Cambiando a modo demo...'
+          : `Cambiando a ${mode === 'ble' ? 'Bluetooth' : 'USB'}... (por Bluetooth tarda ~30 s)`);
   try {
     const r = await (await fetch('/api/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                                   body: JSON.stringify({ mode, target }) })).json();
     if (!r.ok) { connMsg(r.error, 'err'); return; }
     infoKey = undefined;  // recargar la información del dispositivo con la nueva conexión
+    if (mode !== 'demo') conexionReal = { mode, target };
     await loadConnection();
-    connMsg('Conectando... el estado de arriba cambia a "Conectado" cuando esté listo.', 'ok');
+    nodes = []; selected = null; objetivoNum = null;
+    if (rutaLayer || rutaCoords) document.getElementById('rutaQuitar').click();     // la ruta era del otro modo
+    Object.values(markers).forEach(m => map.removeLayer(m)); for (const k in markers) delete markers[k];
+    fittedOnce = false;
+    connMsg(mode === 'demo' ? 'Modo demo: nodos simulados.' : 'Conectando... el estado de arriba cambia a "Conectado" cuando esté listo.', 'ok');
   } catch (e) { connMsg('No hay respuesta del servidor.', 'err'); }
   finally { btns.forEach(b => b.disabled = false); }
 }
@@ -2447,7 +2626,7 @@ const cvar = name => getComputedStyle(document.body).getPropertyValue(name).trim
 const hhmmss = t => new Date(t * 1000).toLocaleTimeString('es-MX', { timeZone: TZ, hour: 'numeric', minute: '2-digit', second: '2-digit' });
 
 // Hojas del área de trabajo (pestañas abajo, como en Excel)
-const SHEETS = { mapa: 'map', grafica: 'chartPane', eventos: 'eventsPane', dispositivo: 'devicePane', terreno: 'terrainPane' };
+const SHEETS = { mapa: 'map', grafica: 'chartPane', eventos: 'eventsPane', dispositivo: 'devicePane', terreno: 'terrainPane', red: 'redPane' };
 let sheetActual = 'mapa';
 function showSheet(name) {
   sheetActual = name;
@@ -2458,6 +2637,7 @@ function showSheet(name) {
   if (name === 'grafica') loadChart();
   if (name === 'eventos') loadEvents();
   if (name === 'terreno') abrirTerreno();
+  if (name === 'red') cargarRed();
 }
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => showSheet(b.dataset.tab));
 // ?hoja=grafica|eventos|dispositivo abre esa hoja al cargar (útil para enlaces y capturas)
