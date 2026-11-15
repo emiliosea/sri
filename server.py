@@ -1605,6 +1605,33 @@ def api_ble_scan():
     return jsonify({"ok": True, "devices": devices})
 
 
+# ---------------------------------------------------------------------------
+# Modo desarrollador (3 clics en el logo + contraseña): solo así se puede pasar a la demo.
+#   Se guarda solo el hash de la contraseña. No es seguridad fuerte (el código es público): evita
+#   que alguien en la estación cambie a datos simulados por accidente.
+# ---------------------------------------------------------------------------
+DEV_HASH = "b5559279687e139e9c1e9b82f00501af2ba0e9b162a82c6900bdda1d2bdc6193"
+_dev_tokens = set()
+
+
+def _dev_ok(req):
+    return req.headers.get("X-SRI-Dev", "") in _dev_tokens
+
+
+@app.route("/api/dev", methods=["POST"])
+def api_dev():
+    import hashlib
+    import secrets
+    from flask import request
+    clave = str((request.get_json(silent=True) or {}).get("clave", ""))
+    if hashlib.sha256(clave.encode()).hexdigest() != DEV_HASH:
+        time.sleep(1)                         # frena los intentos a ciegas
+        return jsonify({"ok": False, "error": "Contraseña incorrecta"}), 403
+    token = secrets.token_hex(16)
+    _dev_tokens.add(token)
+    return jsonify({"ok": True, "token": token})
+
+
 @app.route("/api/connect", methods=["POST"])
 def api_connect():
     """Cambia la conexión sin reiniciar el servidor. Body: {"mode": "ble"|"serial"|"demo", "target": "..."}"""
@@ -1621,6 +1648,8 @@ def api_connect():
             return jsonify({"ok": False, "error": "Puerto no válido"}), 400
     elif mode == "demo":
         target = None
+        if not _dev_ok(request):
+            return jsonify({"ok": False, "error": "La demo solo está disponible en modo desarrollador"}), 403
     else:
         return jsonify({"ok": False, "error": "Modo no válido (usa 'ble', 'serial' o 'demo')"}), 400
     if not _switch_lock.acquire(blocking=False):
@@ -1680,8 +1709,8 @@ def main():
         if not args.meshtastic and cfg.conf("nodo", "firmware") == "meshtastic":
             args.meshtastic = True
         if saved and saved["mode"] == "demo":
-            args.demo = True
-            saved = None
+            # en vivo por defecto: la demo no se recuerda entre arranques, se vuelve a la última conexión real
+            saved = saved.get("real")
         if saved:
             print(f"Usando la última conexión guardada: {saved['mode']} {saved.get('target') or ''}", flush=True)
             if saved["mode"] == "ble":

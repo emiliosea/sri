@@ -18,10 +18,12 @@ Interfaz web organizada **al estilo Excel**. Las capturas son del modo demo (nod
 Colores: blanco y negro, **azul** para lo resaltado (este nodo, en vivo, OK) y **rojo** para alertas. Todas las
 horas en CST (Monterrey).
 
-**Modos: Tiempo real y Demo.** En la cinta **Conexión -> Modo** se elige entre el nodo real y los nodos simulados;
-la barra de título muestra **EN VIVO** o **DEMO**. La elección se recuerda; al volver a Tiempo real se reconecta a la
-última conexión real (USB o Bluetooth). Además hay una entrada **SRI Demo** en el menú de aplicaciones que abre la
-demo en su propia ventana (puerto 5001) sin tocar al SRI real.
+**En vivo por defecto; demo en modo desarrollador.** SRI siempre arranca conectado al nodo real (barra de título:
+**EN VIVO**). Para pruebas: **3 clics en el logo** de la izquierda y la contraseña de desarrollador; aparece en la cinta
+**Conexión** el grupo **Modo (desarrollador)** con **Tiempo real** / **Demo** (nodos simulados, etiqueta **DEMO**) y
+**Salir de desarrollador**, que vuelve al nodo real. El servidor revisa la contraseña (guarda solo su hash) y no deja
+pasar a la demo sin ella; al reiniciar SRI se vuelve a la última conexión real. Desde la terminal sigue existiendo
+`sri-app --demo` (otra ventana, puerto 5001).
 
 **Actualizar todo** (cinta Inicio): vuelve a revisar si hay internet y pide de nuevo todo: al nodo (le pone la hora
 de la PC y lee telemetría, batería, GPS y detector; si estaba desconectado, reintenta la conexión de inmediato), el

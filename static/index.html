@@ -126,7 +126,14 @@
                 border-top: 1px solid var(--line); background: var(--bg); }
   #calibDlg { width: min(460px, 92vw); padding: 0; border: 1px solid var(--fg); border-radius: 0;
               background: var(--bg); color: var(--fg); font-family: var(--mono); font-size: 12px; }
-  #calibDlg::backdrop { background: rgba(0, 0, 0, .45); }
+  #calibDlg::backdrop, #devDlg::backdrop { background: rgba(0, 0, 0, .45); }
+  #devDlg { width: min(340px, 92vw); padding: 0; border: 1px solid var(--fg); border-radius: 0; background: var(--bg); color: var(--fg); }
+  #devDlg .dhead { padding: 6px 12px; background: var(--fg); color: var(--bg); font-size: 13px; }
+  #devDlg .dbody { padding: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+  #devDlg input { font: inherit; padding: 4px 6px; }
+  #devDlg .dbtns { display: flex; justify-content: flex-end; gap: 6px; }
+  #devMsg:empty { display: none; }
+  #titlebar .logo { cursor: default; user-select: none; }
   #calibDlg .dhead { display: flex; justify-content: space-between; align-items: center;
                      padding: 10px 16px; border-bottom: 1px solid var(--line); font-size: 13px; }
   #calibBody { padding: 12px 16px 16px; line-height: 1.5; }
@@ -479,12 +486,13 @@
   </div>
 
   <div class="rbody" data-rib="conexion" hidden>
-    <div class="rgroup">
+    <div class="rgroup" id="grupoModo" hidden>
       <div class="ritems ctabs">
         <button id="modoReal" title="Conectar al nodo real (la última conexión USB o Bluetooth usada)">Tiempo real</button>
         <button id="modoDemo" title="Nodos simulados para probar la interfaz sin hardware">Demo</button>
+        <button id="devSalir" class="cbtn" title="Ocultar las opciones de desarrollador y volver al nodo real">Salir de desarrollador</button>
       </div>
-      <div class="rlabel">Modo</div>
+      <div class="rlabel">Modo (desarrollador)</div>
     </div>
     <div class="rgroup">
       <div class="ritems ctabs">
@@ -663,6 +671,19 @@
   <span id="sbUmbral"></span>
   <span class="sbright" id="sbHora"></span>
 </div>
+
+<dialog id="devDlg">
+  <form method="dialog" id="devForm">
+    <div class="dhead"><b>Modo desarrollador</b></div>
+    <div class="dbody">
+      <div class="sub">Opciones para pruebas (modo demo con nodos simulados).</div>
+      <input type="password" id="devClave" placeholder="Contraseña" autocomplete="off">
+      <div id="devMsg" class="err"></div>
+      <div class="dbtns"><button type="button" class="cbtn" id="devCancelar">Cancelar</button>
+        <button type="submit" class="cbtn primary">Entrar</button></div>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="calibDlg">
   <div class="dhead"><b>Calibrar acelerómetro</b><button class="cbtn" id="calibCerrar">Cerrar</button></div>
@@ -2516,6 +2537,43 @@ $('tabBle').onclick = () => showTab('ble');
 function connMsg(text, cls = '') { $('connMsg').textContent = text; $('connMsg').className = cls; }
 
 let conexionReal = null;      // última conexión real (para volver desde la demo)
+
+// Modo desarrollador: 3 clics en el logo + contraseña. Muestra el selector Tiempo real / Demo.
+// El token lo da el servidor al validar la contraseña; dura mientras la ventana esté abierta.
+let devToken = sessionStorage.getItem('sriDev') || null;
+const abrirRibbon = rib => document.querySelector(`#ribbonTabs button[data-rib="${rib}"]`)?.click();
+function aplicarDev() { $('grupoModo').hidden = !devToken; }
+(() => {
+  let clics = 0, t = null;
+  document.querySelector('#titlebar .logo').addEventListener('click', () => {
+    clics++; clearTimeout(t); t = setTimeout(() => { clics = 0; }, 700);
+    if (clics >= 3) {
+      clics = 0;
+      if (devToken) { abrirRibbon('conexion'); return; }
+      $('devClave').value = ''; $('devMsg').textContent = '';
+      $('devDlg').showModal(); $('devClave').focus();
+    }
+  });
+})();
+$('devCancelar').onclick = () => $('devDlg').close();
+$('devForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  let r;
+  try {
+    r = await (await fetch('/api/dev', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                         body: JSON.stringify({ clave: $('devClave').value }) })).json();
+  } catch (err) { r = { ok: false, error: 'Sin respuesta del servidor' }; }
+  if (!r.ok) { $('devMsg').textContent = r.error || 'Contraseña incorrecta'; $('devClave').select(); return; }
+  devToken = r.token; sessionStorage.setItem('sriDev', devToken);
+  $('devDlg').close(); aplicarDev(); abrirRibbon('conexion');
+  connMsg('Modo desarrollador activado.', 'ok');
+});
+$('devSalir').onclick = async () => {
+  const enDemo = $('modoDemo').classList.contains('on');
+  devToken = null; sessionStorage.removeItem('sriDev'); aplicarDev();
+  if (enDemo && conexionReal) await connect(conexionReal.mode, conexionReal.target);
+  else connMsg('Modo desarrollador desactivado.', 'ok');
+};
 function marcarModoConexion(mode) {
   const demo = mode === 'demo';
   $('modoReal').classList.toggle('on', !demo && !!mode);
@@ -2594,8 +2652,12 @@ async function connect(mode, target) {
   connMsg(mode === 'demo' ? 'Cambiando a modo demo...'
           : `Cambiando a ${mode === 'ble' ? 'Bluetooth' : 'USB'}... (por Bluetooth tarda ~30 s)`);
   try {
-    const r = await (await fetch('/api/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const r = await (await fetch('/api/connect', { method: 'POST',
+                                                  headers: { 'Content-Type': 'application/json', 'X-SRI-Dev': devToken || '' },
                                                   body: JSON.stringify({ mode, target }) })).json();
+    if (r.ok === false && mode === 'demo' && /desarrollador/.test(r.error || '')) {    // token vencido (se reinició SRI)
+      devToken = null; sessionStorage.removeItem('sriDev'); aplicarDev();
+    }
     if (!r.ok) { connMsg(r.error, 'err'); return; }
     infoKey = undefined;  // recargar la información del dispositivo con la nueva conexión
     if (mode !== 'demo') conexionReal = { mode, target };
@@ -2616,6 +2678,7 @@ $('bleConnect').onclick = () => {
 };
 
 showTab('serial');
+aplicarDev();
 loadConnection(true);
 
 // ---------------------------------------------------------------------------

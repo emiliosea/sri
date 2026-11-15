@@ -13,18 +13,18 @@ empaquetar/construir.sh
 
 Crea:
 - `empaquetar/dist/sri/` - el programa (Python y dependencias incluidos, ~60 MB).
-- `empaquetar/dist/sri_0.4.0_amd64.deb` - el paquete para instalar (~21 MB).
+- `empaquetar/dist/sri_0.4.1_amd64.deb` - el paquete para instalar (~21 MB).
 
 ## Instalar
 
 ```bash
-sudo apt install ./sri_0.4.0_amd64.deb
+sudo apt install ./sri_0.4.1_amd64.deb
 ```
 
 Queda como **un programa más**: aparece **SRI** (con su ícono) en el menú de aplicaciones. Al abrirlo arranca el
 seguimiento del nodo con el usuario que lo abre (datos en `~/.local/share/sri/`) y se ve en su propia ventana; al
-cerrarla, se detiene. Si ya está abierto, volver a abrirlo solo trae la ventana al frente. **SRI Demo** (también en
-el menú, o `sri-app --demo`) abre los nodos simulados en otra ventana y otro puerto, sin tocar al SRI real. Mientras la ventana
+cerrarla, se detiene. Si ya está abierto, volver a abrirlo solo trae la ventana al frente. Siempre arranca **en vivo**;
+la demo está en el modo desarrollador (3 clics en el logo y contraseña), o desde la terminal con `sri-app --demo`. Mientras la ventana
 está abierta, el lanzador revisa cada 5 s que el seguimiento siga vivo y lo vuelve a arrancar si falló.
 
 ### Actualizar con apt

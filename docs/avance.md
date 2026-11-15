@@ -162,6 +162,8 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
   ruta, el clima y el terreno.
 - Probado en modo demo; las funciones con el nodo real (contactos de MeshCore) quedan por probar con RABANITO y
   un segundo nodo.
+- 0.4.1: una sola aplicación, **en vivo por defecto**; la demo pasó al **modo desarrollador** (3 clics en el logo y
+  contraseña, verificada en el servidor) y se quitó la entrada "SRI Demo" del menú.
 
 ---
 
