@@ -65,8 +65,8 @@ class Svg:
 def flujo():
     s = Svg(900, 1170)
     cx = 360
-    s.text(450, 32, "Detector de caídas y golpes - algoritmo en el nodo (firmware v1.18.0-rabanito)", 15, weight="bold")
-    s.text(450, 52, "Corre dentro de RABANITO 50 veces por segundo; la interfaz solo lee el resultado.", 12, FG2)
+    s.text(450, 32, "Detector de caídas y golpes - algoritmo en el nodo (firmware v1.18.0-sri2)", 15, weight="bold")
+    s.text(450, 52, "Corre dentro del nodo 50 veces por segundo; la estación solo recibe el resultado.", 12, FG2)
 
     y = s.box(cx, 72, 400, ["1. Leer acelerómetro QMA6100P", "ejes x, y, z (rango ±32 g) cada 20 ms"])
     top_mid = 72 + 25
@@ -121,8 +121,9 @@ def flujo():
     y = s.box(cx, y9, 440, ["9. Alarma ENGANCHADA en el nodo", "tipo, pico, reposo, dif, hora, cuenta",
                              "se vacía el banco (no contar dos veces)"], stroke=RED, fill=RED_BG)
     s.line([(cx, y), (cx, y + 24)]); y += 24
-    y = s.box(cx, y, 520, ["10. La interfaz lee el nodo cada 1 s (USB o Bluetooth)",
-                            "foco rojo + sonido + evento guardado + ruta en el mapa",
+    y = s.box(cx, y, 520, ["10. Aviso: el nodo manda la alerta por LoRa al canal",
+                            "'SRI' (3 veces, cada 20 s); la estación la recibe:",
+                            "alarma + sonido + evento guardado + ruta en el mapa",
                             "hasta que se presiona 'Borrar alarma'"], stroke=BLUE)
     s.text(450, y + 40, "Parámetros: 50 Hz | banco 5 s | reposo <= 0.15 g en 1 s | caída libre < 0.35 g por 60 ms"
                         " | dif. mínima ajustable", 11, FG2)
