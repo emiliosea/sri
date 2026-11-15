@@ -9,7 +9,7 @@ Interfaz web organizada **al estilo Excel**. Las capturas son del modo demo (nod
 | Parte | Qué contiene |
 |---|---|
 | **Barra de título** | Nombre del nodo, sonido sí/no, tema claro/oscuro |
-| **Cinta de opciones** | Todos los botones, en pestañas: **Inicio** (ping, hojas, ruta), **Detector** (borrar alarma, dif. mínima, calibrar, eventos, CSV), **Ruta** (modo, Google Maps, quitar, ubicación de la PC), **Conexión** (USB / Bluetooth) |
+| **Cinta de opciones** | Todos los botones, en pestañas: **Inicio** (ping, **Actualizar todo**, hojas, ruta), **Detector** (borrar alarma, dif. mínima, calibrar, eventos, CSV), **Ruta** (modo, Google Maps, quitar, ubicación de la PC), **Conexión** (USB / Bluetooth) |
 | **Cuadro de nombre + barra de fórmulas** | Nodo y resumen de su estado en una línea |
 | **Panel lateral** | Solo información: Estado, Detector de caídas, Ubicación, Ruta, Nodos |
 | **Hojas (abajo)** | Mapa, Gráfica, Eventos, Dispositivo, Terreno. Se pueden abrir directo con `?hoja=terreno`, etc. |
@@ -17,6 +17,12 @@ Interfaz web organizada **al estilo Excel**. Las capturas son del modo demo (nod
 
 Colores: blanco y negro, **azul** para lo resaltado (este nodo, en vivo, OK) y **rojo** para alertas. Todas las
 horas en CST (Monterrey).
+
+**Actualizar todo** (cinta Inicio): vuelve a revisar si hay internet y pide de nuevo todo: al nodo (le pone la hora
+de la PC y lee telemetría, batería, GPS y detector; si estaba desconectado, reintenta la conexión de inmediato), el
+clima, la ruta por calles, la información del dispositivo, el terreno y el agua. Se hace solo cuando vuelve
+internet (por ejemplo, tras quitar el modo avión), para no quedarse con el clima guardado, la ruta en línea recta
+o el mapa del paquete.
 
 ## Hojas
 
@@ -123,6 +129,7 @@ luego "Aplicar". Se guarda en `data/calibracion.json` y se reenvía al nodo en c
 | `GET /api/acel?segundos=60` | Historial de aceleración (gráfica) |
 | `GET /mapa/{z}/{x}/{y}.png` | Mapa base: paquete de región, o OpenStreetMap con internet |
 | `GET /api/region` | ¿Hay internet? y paquetes de región instalados |
+| `POST /api/refrescar` | Revisar internet ya, olvidar el clima en memoria y pedir todo al nodo (y ponerle la hora) |
 | `GET /api/clima?lat=..&lon=..` | Clima actual, próximas 12 h, datos del día y avisos (Open-Meteo) |
 | `POST /api/gps` `{"encendido": true}` | Enciende o apaga el GPS del nodo (el nodo guarda el ajuste) |
 | `GET /api/impacto/historial` | Eventos guardados |

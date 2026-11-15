@@ -13,18 +13,47 @@ empaquetar/construir.sh
 
 Crea:
 - `empaquetar/dist/sri/` - el programa (Python y dependencias incluidos, ~60 MB).
-- `empaquetar/dist/sri_0.2.6_amd64.deb` - el paquete para instalar (~21 MB).
+- `empaquetar/dist/sri_0.3.0_amd64.deb` - el paquete para instalar (~21 MB).
 
 ## Instalar
 
 ```bash
-sudo apt install ./sri_0.2.6_amd64.deb
+sudo apt install ./sri_0.3.0_amd64.deb
 ```
 
 Queda como **un programa más**: aparece **SRI** (con su ícono) en el menú de aplicaciones. Al abrirlo arranca el
 seguimiento del nodo con el usuario que lo abre (datos en `~/.local/share/sri/`) y se ve en su propia ventana; al
 cerrarla, se detiene. Si ya está abierto, volver a abrirlo solo trae la ventana al frente. Mientras la ventana
 está abierta, el lanzador revisa cada 5 s que el seguimiento siga vivo y lo vuelve a arrancar si falló.
+
+### Actualizar con apt
+
+Desde la versión 0.3.0 el paquete agrega el **repositorio apt de SRI** (`/etc/apt/sources.list.d/sri.sources`, firmado
+con la llave `/usr/share/keyrings/sri-archive-keyring.gpg`). Después de instalarlo una vez a mano, las versiones nuevas
+llegan como cualquier programa:
+
+```bash
+sudo apt update && sudo apt upgrade
+```
+
+En una computadora sin SRI, primera instalación desde el repositorio:
+
+```bash
+sudo curl -fsSLo /usr/share/keyrings/sri-archive-keyring.gpg https://emiliosea.github.io/sri/sri-archive-keyring.gpg
+sudo curl -fsSLo /etc/apt/sources.list.d/sri.sources https://emiliosea.github.io/sri/sri.sources
+sudo apt update && sudo apt install sri
+```
+
+**Publicar una versión nueva** (en la computadora que tiene la llave de firma):
+
+1. Subir el número en `sri_config.py` (`VERSION`), luego `empaquetar/construir.sh`.
+2. `empaquetar/publicar.sh`: copia el .deb a la rama `gh-pages`, deja las 3 versiones más recientes, genera el índice
+   (`Packages`, `Release`) y lo **firma**; al final pide usuario y token de GitHub para subir esa rama.
+3. Una sola vez: en GitHub, *Settings -> Pages -> Build and deployment*: *Deploy from a branch*, rama `gh-pages`,
+   carpeta `/ (root)`. El repositorio queda en `https://emiliosea.github.io/sri/`.
+
+La llave privada de firma está en `~/.config/sri-firma/` (no se sube a GitHub). **Respaldarla**: sin ella no se pueden
+publicar actualizaciones que las computadoras acepten. apt rechaza cualquier índice que no venga firmado con ella.
 
 ### Modo estación (la computadora al aire libre)
 

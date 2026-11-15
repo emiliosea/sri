@@ -16,6 +16,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 9. Clima | 12 nov 2026 | Clima en el nodo (Open-Meteo) con avisos para salir a campo |
 | 10. Programa para la estación (fase 1) | 12 nov 2026 | Paquete .deb con servicio systemd y pantalla completa |
 | 11. Sin internet (fase 3) | 13 nov 2026 | Paquete de región de La Huasteca: mapa, relieve, agua y clima guardado |
+| 12. Actualizaciones y "Actualizar todo" | 14 nov 2026 | Repositorio apt firmado (sudo apt upgrade) y botón para refrescar todo |
 
 ---
 
@@ -138,6 +139,17 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
   la hoja Terreno, el agua y los cruces de la ruta; la ruta queda en línea recta y el clima usa el último
   pronóstico guardado.
 - Probado simulando la falta de internet (`SRI_SIN_INTERNET=1`) con el programa en código y empaquetado.
+
+## Etapa 12 - Actualizaciones con apt y botón "Actualizar todo" (14 nov)
+
+- **Repositorio apt firmado** en GitHub Pages (`https://emiliosea.github.io/sri/`): el paquete 0.3.0 agrega la
+  fuente y la llave; las versiones nuevas llegan con `sudo apt update && sudo apt upgrade`. Se publican con
+  `empaquetar/publicar.sh`. Probado en local: apt ofrece la actualización y rechaza un índice alterado.
+- **Actualizar todo**: botón que vuelve a revisar internet, pide todo al nodo (y le pone la hora), el clima, la
+  ruta, el terreno y el agua. Se hace solo cuando vuelve internet; antes, tras perder la conexión, la interfaz se
+  quedaba mostrando datos de "sin internet".
+- Programa: barra de título solo con el logo y "SRI", indicadores rectangulares y mapa nítido con internet
+  (OpenStreetMap; el paquete de región solo sin conexión).
 
 ---
 

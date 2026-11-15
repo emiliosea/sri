@@ -49,6 +49,7 @@ class MeshCoreSource:
         self.loop = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._despertar = threading.Event()   # "Actualizar": no esperar el siguiente intento de conexión
         self._cache = {"self": None, "contacts": [], "device": {}, "custom": {}}
         self._pos_rx = None         # cuándo llegó la última posición GPS válida
         self._impact = None         # estado del detector de caídas (firmware v1.18.0-rabanito)
@@ -138,6 +139,7 @@ class MeshCoreSource:
         fails = 0
         while not self._stop.is_set():
             if self.mc is None:
+                self._despertar.clear()
                 try:
                     self.mc = await asyncio.wait_for(self._connect(), 30)
                     c = self.mc.commands
@@ -186,7 +188,7 @@ class MeshCoreSource:
 
     async def _sleep(self, secs):
         end = time.monotonic() + secs
-        while time.monotonic() < end and not self._stop.is_set():
+        while time.monotonic() < end and not self._stop.is_set() and not self._despertar.is_set():
             await asyncio.sleep(0.5)
 
     async def _poll_impact(self):
@@ -264,6 +266,34 @@ class MeshCoreSource:
                 "moves": [m for m in list(self.moves) if (m["time"] or 0) >= since],
                 "threshold_g": imp.get("threshold_g"),
                 "available": bool(imp.get("available")) and bool(imp.get("sensor_ok"))}
+
+    def refrescar(self, timeout=20):
+        """Botón "Actualizar": hora de la PC al nodo y lectura completa ya. Sin conexión: reintentar de inmediato."""
+        if self.loop is None:
+            return {"nodo": "sin conexión"}
+        if self.mc is None:
+            self._despertar.set()
+            return {"nodo": "reconectando"}
+
+        async def do():
+            c = self.mc.commands
+            await self._cmd(c.set_time(int(time.time())))
+            dev = await self._cmd(c.send_device_query())
+            if dev:
+                with self._lock:
+                    self._cache["device"] = dev
+            ok = await self._poll()
+            await self._poll_impact()
+            return ok
+
+        try:
+            ok = asyncio.run_coroutine_threadsafe(do(), self.loop).result(timeout)
+        except Exception:  # noqa: BLE001
+            ok = False
+        if ok:
+            self.state.update({"connected": True, "error": None})
+            return {"nodo": "actualizado"}
+        return {"nodo": "sin respuesta"}
 
     def impact_cmd(self, name, value, timeout=8):
         """Cambia una variable del detector (borrar alarma, umbral)."""

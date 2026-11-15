@@ -1245,6 +1245,15 @@ def api_map_tile(z, x, y):
     return Response(status=404)
 
 
+@app.route("/api/refrescar", methods=["POST"])
+def api_refresh():
+    """Botón "Actualizar": revisar internet ya, olvidar el clima guardado en memoria y pedir todo al nodo."""
+    region.olvidar_estado_red()
+    _clima_cache.clear()
+    nodo = source.refrescar() if hasattr(source, "refrescar") else {"nodo": "sin cambios"}
+    return jsonify({"ok": True, "internet": region.hay_internet(), "hora": int(time.time()), **nodo})
+
+
 @app.route("/api/region")
 def api_region():
     return jsonify({"internet": region.hay_internet(), "regiones": [r.info() for r in region.regiones()]})

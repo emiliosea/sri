@@ -144,6 +144,11 @@ def hay_internet():
     return ok
 
 
+def olvidar_estado_red():
+    """La siguiente consulta vuelve a probar la conexión (botón Actualizar)."""
+    _red.update(t=0.0)
+
+
 def marcar_sin_internet():
     """Lo llama el servidor cuando una consulta externa falla: evita esperar timeouts repetidos."""
     _red.update(t=time.time(), ok=False)

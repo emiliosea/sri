@@ -75,6 +75,7 @@
              background: var(--blue); color: #fff; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
   #pingBtn:hover { background: var(--bg); color: var(--blue); }
   #pingBtn:disabled { opacity: .6; cursor: wait; }
+  #refreshBtn { margin-left: 6px; } #refreshBtn:disabled { opacity: .6; cursor: wait; }
   #pingResult.ok { color: var(--blue); } #pingResult.err { color: var(--red); }
   #pingProof { display: none; margin-top: 6px; padding: 6px 8px; background: var(--bg-2); border: 1px solid var(--line);
                font-size: 12px; color: var(--fg-2); line-height: 1.6; }
@@ -389,7 +390,8 @@
 
   <div class="rbody" data-rib="inicio">
     <div class="rgroup">
-      <div class="ritems"><button id="pingBtn" title="Envía una petición al nodo y mide cuánto tarda en responder">Ping al nodo</button></div>
+      <div class="ritems"><button id="pingBtn" title="Envía una petición al nodo y mide cuánto tarda en responder">Ping al nodo</button>
+        <button id="refreshBtn" class="cbtn" title="Vuelve a revisar internet y pide de nuevo todo: nodo, hora, clima, ruta, terreno y agua">[ Actualizar todo ]</button></div>
       <div class="rlabel">Comprobar</div>
     </div>
     <div class="rgroup">
@@ -822,13 +824,51 @@ async function revisarRed() {
     el.textContent = r.internet ? (reg ? `Región: ${reg}` : '') : `SIN INTERNET${reg ? ' | usando paquete: ' + reg : ''}`;
     el.title = r.internet ? 'Con internet' : 'Sin internet: mapa, relieve y agua salen del paquete de región';
     if (r.internet !== hayInternet) {                    // cambió la conexión: cambiar la fuente del mapa
+      const volvio = r.internet && !hayInternet;
       hayInternet = r.internet;
       capasBase.forEach(c => c.setUrl(urlBase()));
+      if (volvio && !refrescando) refrescarTodo('volvió internet');   // pedir de nuevo clima, ruta, agua...
     }
   } catch (e) { /* el servidor no responde: ya lo indica el estado */ }
 }
 revisarRed();
 setInterval(revisarRed, 30000);
+
+// ---------------------------------------------------------------------------
+// "Actualizar todo": el servidor revisa internet ya y pide todo al nodo (también le pone la hora de la PC);
+// luego la página vuelve a pedir clima, ruta, información del dispositivo, terreno y agua.
+// Se hace solo cuando vuelve internet.
+// ---------------------------------------------------------------------------
+let refrescando = false;
+async function refrescarTodo(motivo) {
+  if (refrescando) return;
+  refrescando = true;
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true; btn.textContent = '[ Actualizando... ]';
+  let r = {};
+  try { r = await (await fetch('/api/refrescar', { method: 'POST' })).json(); } catch (e) { r = { ok: false }; }
+  try {
+    await revisarRed();
+    await poll();
+    infoKey = null; loadInfo(lastStatus);
+    await actualizarClima(true);
+    if (rutaLayer || rutaCoords) await trazarRuta(undefined, { ajustar: false, pestana: false });
+    if (agua === null || (malla && !aguaClave)) { aguaClave = null; if (malla) cargarAgua(malla.caja); }
+    tClave = null; if (tAbierto) actualizarTerreno(true);
+    if (sheetActual === 'grafica') loadChart();
+    if (sheetActual === 'eventos') loadEvents();
+  } finally {
+    refrescando = false;
+    btn.disabled = false;
+    const hora = new Date().toLocaleTimeString('es-MX', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+    const nodo = { actualizado: 'nodo OK', reconectando: 'reconectando al nodo', 'sin respuesta': 'el nodo no respondió' }[r.nodo] || '';
+    btn.textContent = `[ Actualizado ${hora} ]`;
+    btn.title = `Última actualización ${hora}${motivo ? ' (' + motivo + ')' : ''}: ` +
+                `${r.internet === false ? 'sin internet' : 'con internet'}${nodo ? ', ' + nodo : ''}`;
+    setTimeout(() => { if (!refrescando) btn.textContent = '[ Actualizar todo ]'; }, 4000);
+  }
+}
+document.getElementById('refreshBtn').addEventListener('click', () => refrescarTodo());
 
 // ¿Se espera lluvia o tormenta en las próximas 12 h? (para el aviso de cruces de agua)
 function climaLluvioso() {
