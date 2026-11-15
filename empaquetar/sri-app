@@ -65,5 +65,11 @@ PID_VENTANA=$!
 # Mientras la ventana siga abierta, mantener vivo el seguimiento
 while kill -0 "$PID_VENTANA" 2>/dev/null; do
   sleep 5
+  # Si "apt upgrade" reemplazó el programa mientras corría, reiniciar el servidor con la versión nueva
+  # (si no, la ventana carga la interfaz nueva contra el servidor viejo)
+  if [ -n "$PID_SERVIDOR" ] && readlink "/proc/$PID_SERVIDOR/exe" 2>/dev/null | grep -q "(deleted)"; then
+    kill "$PID_SERVIDOR" 2>/dev/null; sleep 1
+    aviso "SRI se actualizó: reiniciando con la versión nueva"
+  fi
   asegurar_servidor >/dev/null 2>&1 || true
 done

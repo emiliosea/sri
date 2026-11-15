@@ -106,6 +106,7 @@
   #mine .gpsOff .sub { color: var(--fg-2); }
   #sbGps { color: var(--red); font-weight: 700; }
   #sbRed.off { color: var(--red); font-weight: 700; }
+  #sbVersion { color: var(--red); font-weight: 700; }
   #clima .antiguo { color: var(--red); font-size: 12px; margin-top: 4px; }
   /* ---------- Detector de caídas (foco) ---------- */
   .foco { display: inline-block; width: 16px; height: 9px; vertical-align: middle; flex-shrink: 0;
@@ -664,6 +665,7 @@
   <span id="sbEstado">Listo</span>
   <span id="connSummary">--</span>
   <span id="sbGps"></span>
+  <span id="sbVersion"></span>
   <span id="sbRed"></span>
   <span id="sbClima"></span>
   <span id="sbBat"></span>
@@ -702,6 +704,19 @@
 </dialog>
 
 <script>
+// Si una ruta /api/ no existe (404), el servidor es de una versión anterior que la interfaz (pasa justo después de
+// "apt upgrade" con SRI abierto): avisarlo en la barra de estado en lugar de "sin respuesta del servidor".
+(() => {
+  const original = window.fetch.bind(window);
+  window.fetch = async (url, opts) => {
+    const r = await original(url, opts);
+    if (r.status === 404 && typeof url === 'string' && url.startsWith('/api/')) {
+      const el = document.getElementById('sbVersion');
+      if (el) el.textContent = 'SRI se actualizó: cierra y vuelve a abrir SRI';
+    }
+    return r;
+  };
+})();
 const STALE_SECONDS = 15 * 60;   // un nodo no escuchado en 15 min se ve gris
 const POLL_MS = 3000;
 
@@ -2562,7 +2577,10 @@ $('devForm').addEventListener('submit', async e => {
   try {
     r = await (await fetch('/api/dev', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                          body: JSON.stringify({ clave: $('devClave').value }) })).json();
-  } catch (err) { r = { ok: false, error: 'Sin respuesta del servidor' }; }
+  } catch (err) {
+    r = { ok: false, error: $('sbVersion').textContent ? 'SRI se actualizó: cierra y vuelve a abrir SRI'
+                                                         : 'Sin respuesta del servidor' };
+  }
   if (!r.ok) { $('devMsg').textContent = r.error || 'Contraseña incorrecta'; $('devClave').select(); return; }
   devToken = r.token; sessionStorage.setItem('sriDev', devToken);
   $('devDlg').close(); aplicarDev(); abrirRibbon('conexion');
