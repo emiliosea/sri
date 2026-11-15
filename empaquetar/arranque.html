@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>SRI</title>
+<!-- Página local de arranque: la ventana abre esto (file://) y entra a SRI cuando el servidor responde.
+     Así nunca aparece la pantalla de error del navegador ("sin internet") mientras SRI arranca. -->
+<style>
+  html, body { margin: 0; height: 100%; background: #fff; color: #000;
+               font-family: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", monospace; }
+  @media (prefers-color-scheme: dark) { html, body { background: #000; color: #fff; } }
+  main { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+  svg { width: 72px; height: 72px; }
+  #msg { font-size: 14px; } #det { font-size: 12px; opacity: .7; max-width: 520px; text-align: center; }
+  img { display: none; }
+</style></head>
+<body><main>
+  <svg viewBox="0 0 9 9" shape-rendering="crispEdges" aria-hidden="true"><g fill="currentColor">
+    <rect x="1" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="7" y="1" width="1" height="1"/>
+    <rect x="2" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="6" y="2" width="1" height="1"/>
+    <rect x="2" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="6" y="3" width="1" height="1"/>
+    <rect x="3" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="5" y="4" width="1" height="1"/>
+    <rect x="4" y="5" width="1" height="1"/><rect x="4" y="6" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/>
+  </g></svg>
+  <div id="msg">Iniciando SRI...</div>
+  <div id="det"></div>
+</main>
+<script>
+  // El puerto llega después del # (por ejemplo arranque.html#5000)
+  const puerto = parseInt(location.hash.slice(1), 10) || 5000;
+  const url = `http://localhost:${puerto}/`;
+  const inicio = Date.now();
+  function probar() {
+    const img = new Image();
+    img.onload = () => location.replace(url);
+    img.onerror = () => {
+      const s = Math.round((Date.now() - inicio) / 1000);
+      if (s >= 30) {
+        document.getElementById('msg').textContent = 'SRI está tardando en arrancar...';
+        document.getElementById('det').textContent =
+          'Se sigue intentando. Si no abre, cierra esta ventana y vuelve a abrir SRI; el registro está en ~/.local/share/sri/sri.log';
+      }
+      setTimeout(probar, 500);
+    };
+    img.src = `${url}static/logo-claro.svg?t=${Date.now()}`;
+  }
+  probar();
+</script>
+</body></html>

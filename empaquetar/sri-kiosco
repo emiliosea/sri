@@ -34,8 +34,9 @@ abrir() {
   if command -v chromium >/dev/null || command -v chromium-browser >/dev/null; then
     local NAV; NAV="$(command -v chromium || command -v chromium-browser)"
     local EXTRA=(--kiosk); [ "$MODO_VENTANA" = 1 ] && EXTRA=(--window-size=1280,800)
-    "$NAV" --app="$URL" "${EXTRA[@]}" --user-data-dir="$DIR/perfil" --no-first-run --noerrdialogs \
-      --disable-infobars --disable-session-crashed-bubble --disable-features=Translate \
+    "$NAV" --app="file:///opt/sri/arranque.html#${PUERTO:-5000}" "${EXTRA[@]}" --user-data-dir="$DIR/perfil" --no-first-run --noerrdialogs \
+      --disable-background-networking --disable-component-update --disable-sync --no-pings --disable-domain-reliability --disable-client-side-phishing-detection --no-default-browser-check --disable-breakpad --disable-features=Translate,OptimizationHints,MediaRouter,AutofillServerCommunication \
+      --disable-infobars --disable-session-crashed-bubble \
       --password-store=basic --check-for-update-interval=31536000 --overscroll-history-navigation=0
   elif command -v firefox-esr >/dev/null || command -v firefox >/dev/null; then
     local NAV; NAV="$(command -v firefox-esr || command -v firefox)"

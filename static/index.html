@@ -107,6 +107,8 @@
   #sbGps { color: var(--red); font-weight: 700; }
   #sbRed.off { color: var(--red); font-weight: 700; }
   #sbVersion { color: var(--red); font-weight: 700; }
+  /* Sin internet, Google Maps no abriría (saldría la pantalla de "sin conexión" del navegador) */
+  body.sin-internet a.gmaps { opacity: .35; pointer-events: none; }
   #clima .antiguo { color: var(--red); font-size: 12px; margin-top: 4px; }
   /* ---------- Detector de caídas (foco) ---------- */
   .foco { display: inline-block; width: 16px; height: 9px; vertical-align: middle; flex-shrink: 0;
@@ -471,7 +473,7 @@
     <div class="rgroup">
       <div class="ritems">
         <button class="cbtn" data-trazar="1">Ver ruta</button>
-        <a class="cbtn" id="rutaGmaps" target="_blank" rel="noopener">Abrir en Google Maps</a>
+        <a class="cbtn gmaps" id="rutaGmaps" target="_blank" rel="noopener">Abrir en Google Maps</a>
         <button class="cbtn" id="rutaQuitar">Quitar ruta</button>
       </div>
       <div class="rlabel">Ruta</div>
@@ -834,7 +836,7 @@ function coordsBlock(n) {
     <div class="sub">Altitud ${fmt(n.altitude, 0, ' m')} | posición ${ago(n.position_time)} (${fullTime(n.position_time)})</div>
     <div class="actions">
       <button data-copy="${coordText(n)}">Copiar</button>
-      <a href="${mapsUrl(n)}" target="_blank" rel="noopener">Google Maps</a>
+      <a class="gmaps" href="${mapsUrl(n)}" target="_blank" rel="noopener">Google Maps</a>
     </div>`;
 }
 
@@ -902,6 +904,8 @@ async function revisarRed() {
     el.className = r.internet ? '' : 'off';
     el.textContent = r.internet ? (reg ? `Región: ${reg}` : '') : `SIN INTERNET${reg ? ' | usando paquete: ' + reg : ''}`;
     el.title = r.internet ? 'Con internet' : 'Sin internet: mapa, relieve y agua salen del paquete de región';
+    document.body.classList.toggle('sin-internet', !r.internet);
+    document.querySelectorAll('a.gmaps').forEach(a => a.title = r.internet ? '' : 'Necesita internet');
     if (r.internet !== hayInternet) {                    // cambió la conexión: cambiar la fuente del mapa
       const volvio = r.internet && !hayInternet;
       hayInternet = r.internet;

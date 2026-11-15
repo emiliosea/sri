@@ -51,9 +51,12 @@ asegurar_servidor || { aviso "No se pudo iniciar SRI. Revisa $DATOS/sri.log"; ex
 
 NAV="$(command -v chromium || command -v chromium-browser || true)"
 if [ -n "$NAV" ]; then
-  "$NAV" --app="$URL" --user-data-dir="$PERFIL" --class="$CLASE" --name="$CLASE" --window-size=1400,900 \
-    --no-first-run --noerrdialogs --disable-session-crashed-bubble --disable-features=Translate \
-    --password-store=basic --check-for-update-interval=31536000 &
+  # La ventana abre primero la página local de arranque (entra a SRI cuando el servidor responde) y sin los
+  # servicios de Google en segundo plano (sincronizar, actualizar componentes, avisos de red)
+  "$NAV" --app="file:///opt/sri/arranque.html#$PUERTO" --user-data-dir="$PERFIL" --class="$CLASE" --name="$CLASE" \
+    --window-size=1400,900 --no-first-run --noerrdialogs --disable-session-crashed-bubble \
+    --password-store=basic --check-for-update-interval=31536000 \
+    --disable-background-networking --disable-component-update --disable-sync --no-pings --disable-domain-reliability --disable-client-side-phishing-detection --no-default-browser-check --disable-breakpad --disable-features=Translate,OptimizationHints,MediaRouter,AutofillServerCommunication &
 else
   NAV="$(command -v firefox-esr || command -v firefox || true)"
   [ -z "$NAV" ] && { aviso "Instala Chromium para ver la interfaz: sudo apt install chromium"; exit 1; }

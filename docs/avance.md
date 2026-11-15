@@ -164,6 +164,10 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
   un segundo nodo.
 - 0.4.1: una sola aplicación, **en vivo por defecto**; la demo pasó al **modo desarrollador** (3 clics en el logo y
   contraseña, verificada en el servidor) y se quitó la entrada "SRI Demo" del menú.
+- 0.4.2: tras `apt upgrade` con SRI abierto, el servidor se reinicia solo con la versión nueva.
+- 0.4.3: sin internet ya no aparece la pantalla de "sin conexión" del navegador: la ventana abre primero una
+  página local que espera al servidor; los botones de Google Maps se desactivan sin internet y la ventana
+  (Chromium) ya no usa los servicios de Google en segundo plano.
 
 ---
 

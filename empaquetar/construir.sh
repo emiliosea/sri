@@ -41,7 +41,8 @@ for x in sri-app sri-kiosco sri-estacion; do
   ln -s "/opt/sri/$x" "$PKG/usr/bin/$x"
 done
 ln -s /opt/sri/sri "$PKG/usr/bin/sri"
-install -m 644 "$AQUI/sri-kiosco.desktop" "$PKG/opt/sri/sri-kiosco.desktop"    # lo usa sri-estacion activar
+install -m 644 "$AQUI/sri-kiosco.desktop" "$PKG/opt/sri/sri-kiosco.desktop"
+install -m 644 "$AQUI/arranque.html" "$PKG/opt/sri/arranque.html"    # lo usa sri-estacion activar
 install -m 644 "$AQUI/sri.service" "$PKG/lib/systemd/system/sri.service"
 install -m 644 "$AQUI/config.toml" "$PKG/etc/sri/config.toml"
 install -m 644 "$AQUI/sri.desktop" "$PKG/usr/share/applications/sri.desktop"
