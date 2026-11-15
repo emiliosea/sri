@@ -14,7 +14,7 @@ con elevación.
 |---|---|
 | Interfaz web | Funcionando |
 | Conexión con el nodo por **Bluetooth** o **USB** | Funcionando (Linux) |
-| Firmware MeshCore v1.18.0 modificado (`v1.18.0-rabanito`) | Instalado en RABANITO |
+| Firmware MeshCore v1.18.0 modificado (`v1.18.0-sri2`, detector + alertas por LoRa) | Compilado; por flashear en RABANITO |
 | Detector de caídas/golpes (banco de 5 s, pico - reposo) | Funcionando; 35 eventos de prueba |
 | Acelerómetro a ±32 g con calibración de 6 caras | Calibrado (reposo = 1.00 g) |
 | Ruta desde la PC hasta el nodo | Funcionando (ubicación de la PC por lugares Wi-Fi) |
@@ -24,7 +24,7 @@ con elevación.
 | Programa instalable (.deb): programa de escritorio o modo estación | Listo (x86_64); ver [plan](docs/plan-estacion.md) |
 | Funcionamiento sin internet (paquete de región de La Huasteca) | Listo: mapa, relieve, agua y clima guardado |
 | Radio | 915 MHz (banda permitida en México) |
-| Alertas por la malla LoRa a otros nodos | Pendiente |
+| Alertas de caída por la red LoRa (canal privado SRI) | Programado y probado en demo; falta prueba con 2 nodos |
 
 Historia completa por etapas y resultados de las pruebas: **[docs/avance.md](docs/avance.md)**.
 
@@ -67,8 +67,8 @@ empaquetar/               Construcción del programa (PyInstaller) y del paquete
 region/                   Construcción del paquete de región (mapa, relieve, agua) para usar sin internet
 firmware/
   rabanito-acelerometro.patch               Cambios sobre MeshCore v1.18.0
-  RABANITO-meshcore-v1.18.0-rabanito-ble.uf2  Firmware Bluetooth listo para flashear
-  RABANITO-meshcore-v1.18.0-rabanito.uf2      Firmware USB listo para flashear
+  RABANITO-meshcore-v1.18.0-sri2-ble.uf2  Firmware Bluetooth listo para flashear
+  RABANITO-meshcore-v1.18.0-sri2.uf2      Firmware USB listo para flashear
 docs/                     Documentación; docs/img/ con diagramas (generar_diagramas.py) y capturas
 herramientas/             Scripts auxiliares de etapas anteriores
 requirements.txt          Dependencias (requirements.lock: versiones exactas probadas)

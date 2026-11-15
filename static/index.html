@@ -244,6 +244,13 @@
          border: 2px solid var(--bg); box-shadow: 0 0 0 1px var(--fg); }
   .lbl.me { background: var(--blue); color: #fff; box-shadow: 0 0 0 1px var(--blue); }
   .lbl.stale { background: var(--gray-mark); color: #fff; box-shadow: 0 0 0 1px var(--gray-mark); }
+  .lbl.alarma { background: var(--red); color: #fff; box-shadow: 0 0 0 2px var(--red); animation: parpadeo 1s steps(2, start) infinite; }
+  .alertaRed { margin-top: 8px; padding: 6px 8px; border: 2px solid var(--red); color: var(--red); font-size: 12px; }
+  .alertaRed .sub { color: var(--fg-2); }
+  .alertaRed button { font: inherit; font-size: 11px; padding: 1px 6px; margin-top: 4px; }
+  #redCanal { font-size: 12px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  #redCanal input { font: inherit; font-size: 12px; padding: 3px 6px; min-width: 220px; }
+  #redCanal .ok { color: var(--blue); font-weight: 700; } #redCanal .no { color: var(--red); font-weight: 700; }
   .lbl.ghost { background: var(--bg); color: var(--red); border: 2px dashed var(--red); box-shadow: none; }
   .lbl.pc { border-radius: 0; background: var(--bg); color: var(--blue); border: 2px solid var(--blue); box-shadow: none; }
 
@@ -553,6 +560,7 @@
       <div id="detector">
         <div class="drow"><span class="foco na" id="detFoco"></span><span id="detEstado">--</span></div>
         <div class="sub" id="detDetalle"></div>
+        <div id="detRed"></div>
       </div>
     </section>
     <section class="card">
@@ -610,6 +618,7 @@
         </div>
       </div>
       <div id="redBase"></div>
+      <div id="redCanal"></div>
       <div class="redAgregar">
         <input id="redCodigo" placeholder="meshcore://...  (código compartido desde otro nodo o desde la app MeshCore)">
         <button class="cbtn primary" id="redImportar">Agregar por código</button>
@@ -1033,6 +1042,18 @@ function renderRed() {
     const cp = document.getElementById('redCopiar');
     if (cp) cp.onclick = () => { navigator.clipboard.writeText(redInfo.codigo); redMsg('Código copiado.', 'ok'); };
   }
+  const canal = document.getElementById('redCanal');
+  if (redInfo && redInfo.ok && document.activeElement !== document.getElementById('redFrase')) {
+    const c = redInfo.canal_sri;
+    canal.innerHTML = `Canal de alertas SRI en la base: ${c == null ? '<span class="no">no configurado</span>' : `<span class="ok">configurado (canal ${c})</span>`}
+      <input id="redFrase" type="password" placeholder="frase del canal (la misma en todos los nodos)" autocomplete="off">
+      <button class="cbtn" id="redCanalBtn" title="Escribe el canal privado SRI en el nodo conectado; repite en cada nodo de campo con la misma frase">Configurar canal SRI en este nodo</button>`;
+    document.getElementById('redCanalBtn').onclick = () => {
+      const f = document.getElementById('redFrase').value.trim();
+      if (f.length < 6) { redMsg('La frase debe tener al menos 6 caracteres.', 'err'); return; }
+      accionRed('canal', f, 'Configurando el canal SRI');
+    };
+  }
   const auto = document.getElementById('redAuto');
   auto.checked = !!(redInfo && redInfo.autoagregar);
   auto.disabled = !redInfo || redInfo.autoagregar == null;
@@ -1041,7 +1062,7 @@ function renderRed() {
     const d = bp && p && !n.base ? fmtDist(Math.round(distM(bp, p))) : '';
     const esObj = objetivoNum === n.num || (objetivoNum == null && n.base);
     return `<tr class="${esObj ? 'objetivo' : ''}">
-      <td>${esc(n.long_name)}${n.base ? ' <span class="sub">(base)</span>' : ''}${esObj ? ' <span class="sub">[ruta]</span>' : ''}</td>
+      <td>${esc(n.long_name)}${n.base ? ' <span class="sub">(base)</span>' : ''}${esObj ? ' <span class="sub">[ruta]</span>' : ''}${n.alerta_red ? ' <b class="err">ALERTA</b>' : ''}</td>
       <td>${esc(n.hw_model || '')}</td>
       <td>${n.last_heard ? ago(n.last_heard) : '--'}</td>
       <td>${p ? `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}${p.live ? '' : ' (última)'}` : '<span class="sub">sin posición</span>'}</td>
@@ -1161,7 +1182,7 @@ async function loadInfo(status) {
 }
 
 function icon(n, isMe, ghost = false) {
-  const cls = ghost ? 'ghost' : isMe ? 'me' : isStale(n) ? 'stale' : '';
+  const cls = n.alerta_red ? 'alarma' : ghost ? 'ghost' : isMe ? 'me' : isStale(n) ? 'stale' : '';
   return L.divIcon({ className: '', html: `<div class="lbl ${cls}">${esc(n.short_name)}</div>`,
                      iconSize: [30, 30], iconAnchor: [15, 15] });
 }
@@ -1230,6 +1251,7 @@ function render(status) {
     cm.textContent = 'Conectado.'; cm.className = 'ok';
   }
   renderDetector(status);
+  renderAlertasRed();
   renderBars(status);
   renderMine(status);
   actualizarClima();
@@ -1365,6 +1387,48 @@ function renderDetector(status) {
   }
   lastImpactCount = imp.count;
 }
+
+// ---------------------------------------------------------------------------
+// Alertas por LoRa: un nodo de campo con el firmware sri2 manda su caída/golpe por el canal "SRI" y la base la
+// recibe. Aparece en la tarjeta del detector, suena la alarma y se traza la ruta a ese nodo.
+// ---------------------------------------------------------------------------
+let vistasRed = null;           // alertas ya avisadas (para sonar solo con las nuevas)
+function renderAlertasRed() {
+  const lista = nodes.filter(n => n.alerta_red && n.alerta_red.activa);
+  const el = document.getElementById('detRed');
+  el.innerHTML = lista.map(n => {
+    const a = n.alerta_red;
+    return `<div class="alertaRed"><b>[!] ${a.tipo === 'caida' ? 'CAÍDA' : 'GOLPE'} EN ${esc(a.nombre)}</b> (por LoRa)
+      <div class="sub">dif ${fmt(a.dif_g, 2, ' g')} | pico ${fmt(a.pico_g, 2, ' g')} | ${fullTime(a.epoch)}<br>
+      recibida ${ago(a.recibido)} (${a.repeticiones}/3 envíos)${a.lat != null ? ` | ${a.lat.toFixed(5)}, ${a.lon.toFixed(5)}` : ' | sin posición GPS'}</div>
+      <button data-ruta-red="${n.num}">Ruta a ${esc(a.nombre)}</button>
+      <button data-borrar-red="${esc(a.nombre)}">Borrar alerta</button></div>`;
+  }).join('');
+  if (lista.length) {
+    document.getElementById('detector').closest('.card').classList.add('alarma');
+    document.getElementById('detector').classList.add('alarma');
+  }
+  const claves = lista.map(n => `${n.alerta_red.nombre}|${n.alerta_red.cuenta}|${n.alerta_red.epoch}`);
+  if (vistasRed === null) { vistasRed = new Set(claves); return; }       // al abrir: no sonar por las viejas
+  for (const n of lista) {
+    const a = n.alerta_red, k = `${a.nombre}|${a.cuenta}|${a.epoch}`;
+    if (vistasRed.has(k)) continue;
+    vistasRed.add(k);
+    alarm();
+    objetivoNum = n.num; rutaAuto = true; rutaDestino = null;
+    trazarRuta(`${a.tipo === 'caida' ? 'CAÍDA' : 'GOLPE'} en ${a.nombre} (por LoRa) ${fullTime(a.epoch)}`);
+  }
+}
+document.getElementById('detRed').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.rutaRed) {
+    objetivoNum = +b.dataset.rutaRed; rutaDestino = null;
+    trazarRuta(undefined, { ajustar: true, pestana: true });
+  } else if (b.dataset.borrarRed) {
+    detPost('/api/impacto/reset', { nodo: b.dataset.borrarRed });
+  }
+});
 
 async function detPost(url, body) {
   const r = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1631,10 +1695,13 @@ function renderBars(status) {
   if (imp && imp.available) {
     partes.push(imp.active ? `ALARMA: ${imp.type === 'caida' ? 'caída' : 'golpe'} ${fmt(imp.diff_g, 2, ' g')}` : 'detector: sin alarma');
   }
+  nodes.filter(n => n.alerta_red && n.alerta_red.activa).forEach(n =>
+    partes.push(`ALERTA LoRa: ${n.alerta_red.tipo === 'caida' ? 'caída' : 'golpe'} en ${n.alerta_red.nombre}`));
   document.getElementById('fxText').textContent = '= ' + partes.join('  |  ');
   const est = document.getElementById('sbEstado');
-  est.textContent = imp && imp.active ? 'ALARMA' : status.connected ? 'Listo' : 'Desconectado';
-  est.className = imp && imp.active ? 'err' : status.connected ? 'ok' : 'err';
+  const alarmaRed = nodes.some(n => n.alerta_red && n.alerta_red.activa);
+  est.textContent = (imp && imp.active) || alarmaRed ? 'ALARMA' : status.connected ? 'Listo' : 'Desconectado';
+  est.className = (imp && imp.active) || alarmaRed ? 'err' : status.connected ? 'ok' : 'err';
   document.getElementById('sbGps').textContent = me && me.gps_on === false ? 'GPS APAGADO' : '';
   document.getElementById('sbBat').textContent = me && me.battery != null ? `Batería ${batteryText(me.battery)}` : '';
   document.getElementById('sbAcel').textContent = imp && imp.accel_g != null ? `Aceleración ${fmt(imp.accel_g, 2, ' g')}` : '';
@@ -2742,10 +2809,11 @@ async function loadEvents() {
   const el = document.getElementById('eventsTable');
   if (!eventos.length) { el.innerHTML = '<div class="sub">Todavía no hay eventos guardados.</div>'; return; }
   const n = eventos.length;
-  el.innerHTML = `<table><tr><th></th><th class="izq">Hora (CST)</th><th class="izq">Tipo</th><th>Pico (g)</th>` +
+  el.innerHTML = `<table><tr><th></th><th class="izq">Hora (CST)</th><th class="izq">Tipo</th><th class="izq">Nodo</th><th>Pico (g)</th>` +
     `<th>Reposo (g)</th><th>Dif. (g)</th><th>Latitud</th><th>Longitud</th></tr>` +
     eventos.map((e, i) => `<tr><td class="fila">${n - i}</td><td class="izq">${fullTime(e.hora_nodo || e.recibido)}</td>` +
-      `<td class="izq">${e.tipo === 'caida' ? 'Caída' : 'Golpe'}</td><td>${fmt(e.pico_g, 2)}</td><td>${fmt(e.reposo_g, 2)}</td>` +
+      `<td class="izq">${e.tipo === 'caida' ? 'Caída' : 'Golpe'}</td><td class="izq">${e.nodo ? esc(e.nodo) + ' (LoRa)' : 'base'}</td>` +
+      `<td>${fmt(e.pico_g, 2)}</td><td>${fmt(e.reposo_g, 2)}</td>` +
       `<td>${fmt(e.dif_g, 2)}</td><td>${e.posicion ? e.posicion.lat.toFixed(6) : '--'}</td>` +
       `<td>${e.posicion ? e.posicion.lon.toFixed(6) : '--'}</td></tr>`).join('') + '</table>';
 }
@@ -2754,13 +2822,14 @@ setInterval(() => { if (sheetActual === 'eventos') loadEvents(); }, 5000);
 async function exportCSV() {
   await loadEvents();
   const fecha = ts => new Date(ts * 1000).toLocaleString('sv-SE', { timeZone: TZ });   // 2026-11-10 18:21:10
-  const filas = [['hora_cst', 'tipo', 'pico_g', 'reposo_g', 'dif_g', 'latitud', 'longitud']].concat(
-    eventos.slice().reverse().map(e => [fecha(e.hora_nodo || e.recibido), e.tipo, e.pico_g, e.reposo_g ?? '',
+  const filas = [['hora_cst', 'tipo', 'nodo', 'via', 'pico_g', 'reposo_g', 'dif_g', 'latitud', 'longitud']].concat(
+    eventos.slice().reverse().map(e => [fecha(e.hora_nodo || e.recibido), e.tipo, e.nodo || 'base', e.via || 'conexion',
+                                         e.pico_g, e.reposo_g ?? '',
                                          e.dif_g ?? '', e.posicion ? e.posicion.lat : '', e.posicion ? e.posicion.lon : '']));
   const csv = '\ufeff' + filas.map(f => f.join(',')).join('\r\n');   // BOM: Excel respeta los acentos
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  a.download = `eventos_rabanito_${new Date().toLocaleDateString('sv-SE', { timeZone: TZ })}.csv`;
+  a.download = `eventos_sri_${new Date().toLocaleDateString('sv-SE', { timeZone: TZ })}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
 }

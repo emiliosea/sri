@@ -1,3 +1,92 @@
+diff --git a/examples/companion_radio/MyMesh.cpp b/examples/companion_radio/MyMesh.cpp
+index f32ea67..61c629e 100644
+--- a/examples/companion_radio/MyMesh.cpp
++++ b/examples/companion_radio/MyMesh.cpp
+@@ -2431,6 +2431,72 @@ void MyMesh::loop() {
+     saveContacts();
+     dirty_contacts_expiry = 0;
+   }
++
++  alertaSRI();
++}
++
++// ---------------------------------------------------------------------------------------------
++// SRI (Sistema de Respuesta Inmediata): cuando el detector de caídas del nodo engancha un evento
++// (variable "alerta" del SensorManager), se manda un mensaje al canal de grupo "SRI", sin necesitar
++// la app ni la PC. Los mensajes de canal no tienen acuse de recibo: se repite 3 veces, cada 20 s.
++//   SRI1 CAIDA dif 7.97g pico 8.79g @25.662300,-100.422100 t1794705000 #3 (1/3)
++// Sin canal "SRI" configurado no se manda nada (la alarma sigue en el nodo y en la PC conectada).
++// ---------------------------------------------------------------------------------------------
++void MyMesh::alertaSRI() {
++  static unsigned long proxima = 0;
++  static uint8_t enviados = 0;
++  static char ultima[64] = "";
++  if (proxima && !millisHasNowPassed(proxima)) return;
++  proxima = futureMillis(1000);
++
++  const char* a = sensors.getSettingByKey("alerta");
++  if (a == NULL || a[0] == 0 || strcmp(a, "-") == 0) { enviados = 0; ultima[0] = 0; return; }
++  if (strcmp(a, ultima) != 0) {                         // evento nuevo: empezar de cero
++    strncpy(ultima, a, sizeof(ultima) - 1);
++    ultima[sizeof(ultima) - 1] = 0;
++    enviados = 0;
++  }
++  if (enviados >= 3) { sensors.setSettingValue("alerta", "0"); return; }
++
++  ChannelDetails ch;
++  int idx = -1;
++#ifdef MAX_GROUP_CHANNELS
++  for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
++    if (getChannel(i, ch) && strcmp(ch.name, "SRI") == 0) { idx = i; break; }
++  }
++#endif
++  if (idx < 0) { sensors.setSettingValue("alerta", "0"); return; }
++
++  // "tipo|pico*100|dif*100|epoch|cuenta"
++  char tipo[8] = "?";
++  long pico = 0, dif = 0;
++  unsigned long epoch = 0, cuenta = 0;
++  const char* p = a;
++  int k = 0;
++  while (*p && *p != '|' && k < 7) tipo[k++] = (char)toupper(*p++);
++  tipo[k] = 0;
++  if (*p == '|') pico = strtol(p + 1, (char**)&p, 10);
++  if (*p == '|') dif = strtol(p + 1, (char**)&p, 10);
++  if (*p == '|') epoch = strtoul(p + 1, (char**)&p, 10);
++  if (*p == '|') cuenta = strtoul(p + 1, (char**)&p, 10);
++
++  char pos[40] = "";
++  if (sensors.node_lat != 0 || sensors.node_lon != 0) {
++    // en millonésimas de grado con enteros (no depende de que printf soporte decimales)
++    long la = lround(sensors.node_lat * 1000000.0), lo = lround(sensors.node_lon * 1000000.0);
++    snprintf(pos, sizeof(pos), " @%s%ld.%06ld,%s%ld.%06ld", la < 0 ? "-" : "", labs(la) / 1000000, labs(la) % 1000000,
++             lo < 0 ? "-" : "", labs(lo) / 1000000, labs(lo) % 1000000);
++  }
++  char txt[140];
++  snprintf(txt, sizeof(txt), "SRI1 %s dif %ld.%02ldg pico %ld.%02ldg%s t%lu #%lu (%u/3)", tipo, dif / 100, labs(dif) % 100,
++           pico / 100, labs(pico) % 100, pos, epoch, cuenta, (unsigned)(enviados + 1));
++
++  uint32_t ts = getRTCClock()->getCurrentTimeUnique();
++  if (sendGroupMessage(ts, ch.channel, _prefs.node_name, txt, strlen(txt))) {
++    enviados++;
++    MESH_DEBUG_PRINTLN("SRI: alerta enviada (%u/3): %s", (unsigned)enviados, txt);
++    proxima = futureMillis(enviados < 3 ? 20000 : 1000);
++  }
+ }
+ 
+ bool MyMesh::advert() {
+diff --git a/examples/companion_radio/MyMesh.h b/examples/companion_radio/MyMesh.h
+index 944790d..e1c779d 100644
+--- a/examples/companion_radio/MyMesh.h
++++ b/examples/companion_radio/MyMesh.h
+@@ -233,6 +233,7 @@ private:
+   void checkCLIRescueCmd();
+   bool handleCommand(const char* text, uint32_t sender_timestamp, char* reply);
+   void checkSerialInterface();
++  void alertaSRI();     // SRI: manda por LoRa (canal "SRI") la alerta de caída/golpe del detector
+   bool isValidClientRepeatFreq(uint32_t f) const;
+ 
+   // helpers, short-cuts
 diff --git a/src/helpers/nrf52/SerialBLEInterface.cpp b/src/helpers/nrf52/SerialBLEInterface.cpp
 index 6ed16bc..78253fc 100644
 --- a/src/helpers/nrf52/SerialBLEInterface.cpp
@@ -40,14 +129,14 @@ index 6ed16bc..78253fc 100644
    bleuart.setRxCallback(onBleUartRX);
  
 diff --git a/variants/t1000-e/platformio.ini b/variants/t1000-e/platformio.ini
-index 8456dc9..420c43e 100644
+index 8456dc9..8fe974b 100644
 --- a/variants/t1000-e/platformio.ini
 +++ b/variants/t1000-e/platformio.ini
 @@ -73,6 +73,7 @@ extends = t1000-e
  board_build.ldscript = boards/nrf52840_s140_v7_extrafs.ld
  board_upload.maximum_size = 708608
  build_flags = ${t1000-e.build_flags}
-+  -D FIRMWARE_VERSION='"v1.18.0-rabanito"'   ; MeshCore + detección de caídas (acelerómetro)
++  -D FIRMWARE_VERSION='"v1.18.0-sri2"'   ; MeshCore + detección de caídas (acelerómetro)
    -I examples/companion_radio/ui-orig
    -D MAX_CONTACTS=350
    -D MAX_GROUP_CHANNELS=40
@@ -55,13 +144,13 @@ index 8456dc9..420c43e 100644
  board_build.ldscript = boards/nrf52840_s140_v7_extrafs.ld
  board_upload.maximum_size = 708608
  build_flags = ${t1000-e.build_flags}
-+  -D FIRMWARE_VERSION='"v1.18.0-rabanito-ble"'   ; MeshCore + detección de caídas, por Bluetooth
++  -D FIRMWARE_VERSION='"v1.18.0-sri2-ble"'   ; MeshCore + detección de caídas, por Bluetooth
 +  -D BLE_NO_PIN                                  ; datos por Bluetooth sin PIN (Linux/BlueZ)
    -I examples/companion_radio/ui-orig
    -D MAX_CONTACTS=350
    -D MAX_GROUP_CHANNELS=40
 diff --git a/variants/t1000-e/target.cpp b/variants/t1000-e/target.cpp
-index 70a6435..6fc0192 100644
+index 70a6435..8827120 100644
 --- a/variants/t1000-e/target.cpp
 +++ b/variants/t1000-e/target.cpp
 @@ -3,6 +3,8 @@
@@ -73,7 +162,7 @@ index 70a6435..6fc0192 100644
  
  T1000eBoard board;
  
-@@ -104,9 +106,161 @@ bool T1000SensorManager::begin() {
+@@ -104,9 +106,162 @@ bool T1000SensorManager::begin() {
    digitalWrite(GPS_RESET, HIGH);
    delay(10);
    digitalWrite(GPS_RESET, LOW);
@@ -108,9 +197,9 @@ index 70a6435..6fc0192 100644
 +  if (Wire.endTransmission(false) != 0) return false;
 +  if (Wire.requestFrom((uint8_t)QMA_ADDR, n) != n) return false;
 +  for (uint8_t i = 0; i < n; i++) buf[i] = Wire.read();
-+  return true;
-+}
-+
+   return true;
+ }
+ 
 +void T1000SensorManager::acc_begin() {
 +  digitalWrite(PIN_3V3_ACC_EN, HIGH);   // MeshCore deja apagada la alimentación del acelerómetro
 +  delay(10);
@@ -144,9 +233,9 @@ index 70a6435..6fc0192 100644
 +  }
 +  raw_n++;
 +  g = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
-   return true;
- }
- 
++  return true;
++}
++
 +// Lectura del banco: edad 0 = lectura más reciente
 +#define HIST_AT(age) hist[(hist_pos - 1 - (age) + HIST_N) % HIST_N]
 +
@@ -226,6 +315,7 @@ index 70a6435..6fc0192 100644
 +    impacto_epoch = epoch_pico;
 +    impacto_cuenta++;
 +    impacto = true;
++    alerta_pendiente = true;          // se manda por LoRa a la base (MyMesh::alertaSRI)
 +  }
 +
 +  // Vaciar el banco para no volver a contar el mismo pico
@@ -235,7 +325,7 @@ index 70a6435..6fc0192 100644
  bool T1000SensorManager::querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) {
    if (requester_permissions & TELEM_PERM_LOCATION) {   // does requester have permission?
      telemetry.addGPS(TELEM_CHANNEL_SELF, node_lat, node_lon, node_altitude);
-@@ -115,6 +269,15 @@ bool T1000SensorManager::querySensors(uint8_t requester_permissions, CayenneLPP&
+@@ -115,6 +270,15 @@ bool T1000SensorManager::querySensors(uint8_t requester_permissions, CayenneLPP&
      // Firmware reports light as a 0-100 % scale, but expose it via Luminosity so app labels it "Luminosity".
      telemetry.addLuminosity(TELEM_CHANNEL_SELF, t1000e_get_light());
      telemetry.addTemperature(TELEM_CHANNEL_SELF, t1000e_get_temperature());
@@ -251,7 +341,7 @@ index 70a6435..6fc0192 100644
    }
    return true;
  }
-@@ -123,6 +286,7 @@ void T1000SensorManager::loop() {
+@@ -123,6 +287,7 @@ void T1000SensorManager::loop() {
    static long next_gps_update = 0;
  
    _nmea->loop();
@@ -259,7 +349,7 @@ index 70a6435..6fc0192 100644
  
    if (millis() > next_gps_update) {
      if (gps_active && _nmea->isValid()) {
-@@ -134,18 +298,83 @@ void T1000SensorManager::loop() {
+@@ -134,18 +299,94 @@ void T1000SensorManager::loop() {
    }
  }
  
@@ -274,7 +364,8 @@ index 70a6435..6fc0192 100644
 +//                al leer), así una gráfica que lee 1 vez por segundo no se pierde los picos
 +//   acc_cal      (solo escritura) calibración "ox|oy|oz|gx|gy|gz" en milésimas: a = (crudo - o) / g
 +//   ultimo       último movimiento evaluado: pico*100|reposo*100|dif*100|epoch (alerte o no)
-+int T1000SensorManager::getNumSettings() const { return 6; }
++//   alerta       tipo|pico*100|dif*100|epoch|cuenta mientras falte mandarla por LoRa ("-" si no); escribir 0 la descarta
++int T1000SensorManager::getNumSettings() const { return 7; }
  
  const char* T1000SensorManager::getSettingName(int i) const {
 -  return i == 0 ? "gps" : NULL;
@@ -285,6 +376,7 @@ index 70a6435..6fc0192 100644
 +    case 3: return "umbral_g";
 +    case 4: return "acel";
 +    case 5: return "ultimo";
++    case 6: return "alerta";
 +  }
 +  return NULL;
  }
@@ -315,12 +407,21 @@ index 70a6435..6fc0192 100644
 +      snprintf(vbuf[5], sizeof(vbuf[5]), "%d|%d|%d|%lu", (int)(ult_pico * 100), (int)(ult_reposo * 100),
 +               (int)(ult_dif * 100), (unsigned long)ult_epoch);
 +      return vbuf[5];
++    case 6:
++      if (!alerta_pendiente) return "-";
++      snprintf(vbuf[6], sizeof(vbuf[6]), "%s|%d|%d|%lu|%u", impacto_tipo, (int)(impacto_pico * 100),
++               (int)(impacto_dif * 100), (unsigned long)impacto_epoch, (unsigned)impacto_cuenta);
++      return vbuf[6];
    }
    return NULL;
  }
  bool T1000SensorManager::setSettingValue(const char* name, const char* value) {
 +  if (strcmp(name, "impacto") == 0) {          // la interfaz borra la alarma con "impacto:0"
 +    if (strcmp(value, "0") == 0) impacto = false;
++    return true;
++  }
++  if (strcmp(name, "alerta") == 0) {           // MyMesh ya la mandó por LoRa (o no hay canal SRI)
++    if (strcmp(value, "0") == 0) alerta_pendiente = false;
 +    return true;
 +  }
 +  if (strcmp(name, "acc_cal") == 0) {          // "ox|oy|oz|gx|gy|gz" en milésimas de g
@@ -348,10 +449,10 @@ index 70a6435..6fc0192 100644
      if (strcmp(value, "0") == 0) {
        stop_gps();
 diff --git a/variants/t1000-e/target.h b/variants/t1000-e/target.h
-index db003cc..a6ec4a8 100644
+index db003cc..16c3b3d 100644
 --- a/variants/t1000-e/target.h
 +++ b/variants/t1000-e/target.h
-@@ -19,6 +19,43 @@ class T1000SensorManager: public SensorManager {
+@@ -19,6 +19,44 @@ class T1000SensorManager: public SensorManager {
    void start_gps();
    void sleep_gps();
    void stop_gps();
@@ -382,11 +483,12 @@ index db003cc..a6ec4a8 100644
 +  float impacto_dif = 0;            // pico - reposo (g)
 +  uint32_t impacto_epoch = 0;       // hora del pico (epoch, reloj del nodo)
 +  uint16_t impacto_cuenta = 0;      // eventos desde que se encendió
++  bool alerta_pendiente = false;    // SRI: falta mandar este evento por LoRa (canal "SRI"); lo borra MyMesh
 +  float ult_pico = 0, ult_reposo = 0, ult_dif = 0;  // último movimiento evaluado (alerte o no)
 +  uint32_t ult_epoch = 0;
 +  unsigned long next_acc_ms = 0;
 +  unsigned long next_acc_retry_ms = 0;
-+  mutable char vbuf[6][64];         // textos de las "custom vars"
++  mutable char vbuf[7][64];         // textos de las "custom vars"
 +
 +  void acc_evaluar(unsigned long now);
 +  void acc_begin();

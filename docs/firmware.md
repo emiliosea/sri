@@ -1,6 +1,7 @@
 # Firmware del nodo (MeshCore modificado)
 
-RABANITO usa **MeshCore v1.18.0** (commit `81dbae5`) con cambios propios, versión **`v1.18.0-rabanito`**.
+RABANITO usa **MeshCore v1.18.0** (commit `81dbae5`) con cambios propios, versión **`v1.18.0-sri2`**
+(antes `v1.18.0-rabanito`; la sri2 agrega las **alertas por LoRa**).
 Los cambios están en [`firmware/rabanito-acelerometro.patch`](../firmware/rabanito-acelerometro.patch).
 
 ## Qué cambia respecto al MeshCore oficial
@@ -10,7 +11,8 @@ Los cambios están en [`firmware/rabanito-acelerometro.patch`](../firmware/raban
 | `variants/t1000-e/target.h` | Estado del acelerómetro, banco de 5 s, alarma y calibración |
 | `variants/t1000-e/target.cpp` | Lectura del QMA6100P (±32 g), detector de caídas, calibración, nuevas custom vars, ejes en la telemetría (canal 2) |
 | `src/helpers/nrf52/SerialBLEInterface.cpp` | Opción `BLE_NO_PIN`: canal de datos Bluetooth sin PIN (la actualización DFU por Bluetooth sigue con PIN) |
-| `variants/t1000-e/platformio.ini` | Versión `v1.18.0-rabanito` (USB) y `v1.18.0-rabanito-ble` (Bluetooth, con `BLE_NO_PIN`) |
+| `variants/t1000-e/platformio.ini` | Versión `v1.18.0-sri2` (USB) y `v1.18.0-sri2-ble` (Bluetooth, con `BLE_NO_PIN`) |
+| `examples/companion_radio/MyMesh.cpp/.h` | `alertaSRI()`: manda la caída/golpe por el canal de grupo "SRI" (ver abajo) |
 
 El algoritmo se explica en [detector-de-caidas.md](detector-de-caidas.md).
 
@@ -18,8 +20,8 @@ El algoritmo se explica en [detector-de-caidas.md](detector-de-caidas.md).
 
 | Archivo | Uso |
 |---|---|
-| `firmware/RABANITO-meshcore-v1.18.0-rabanito-ble.uf2` | **Bluetooth** (firmware actual de RABANITO). El USB solo carga. |
-| `firmware/RABANITO-meshcore-v1.18.0-rabanito.uf2` | **USB** (datos por cable, sin Bluetooth) |
+| `firmware/RABANITO-meshcore-v1.18.0-sri2-ble.uf2` | **Bluetooth** (el de RABANITO y los nodos de campo). El USB solo carga. |
+| `firmware/RABANITO-meshcore-v1.18.0-sri2.uf2` | **USB** (datos por cable, sin Bluetooth) |
 
 ## Flashear
 
@@ -56,13 +58,30 @@ cd .. && uv venv -q .venv-pio && uv pip install -q -p .venv-pio platformio
 cd MeshCore
 ../.venv-pio/bin/pio run -e t1000e_companion_radio_ble
 ../.venv-pio/bin/python bin/uf2conv/uf2conv.py -f 0xADA52840 -c \
-    .pio/build/t1000e_companion_radio_ble/firmware.hex -o ../RABANITO-meshcore-v1.18.0-rabanito-ble.uf2
+    .pio/build/t1000e_companion_radio_ble/firmware.hex -o ../RABANITO-meshcore-v1.18.0-sri2-ble.uf2
 ```
 
 Notas:
 - La conversión a `.uf2` se hace a mano porque el objetivo `-t create_uf2` de MeshCore falla con rutas que
   tienen espacios (como "SRI TESIS").
 - No correr dos compilaciones al mismo tiempo en la misma carpeta.
+
+## Alertas por LoRa (v1.18.0-sri2)
+
+Cuando el detector engancha una caída o golpe, el nodo manda **solo** (sin app ni PC) un mensaje al canal de
+grupo privado **"SRI"**, 3 veces cada 20 s porque los mensajes de canal no tienen acuse de recibo:
+
+```
+SRI1 CAIDA dif 7.97g pico 8.79g @25.662300,-100.422100 t1794705000 #3 (1/3)
+```
+
+(tipo, diferencia pico - reposo, pico, posición GPS si la hay, hora del nodo, número de evento, repetición). Se
+lee también en la app MeshCore. La base (el nodo conectado a la PC) lo recibe y SRI lo muestra como alerta de ese
+nodo. Si el nodo no tiene el canal "SRI", no manda nada (la alarma sigue en el nodo y en la PC conectada).
+
+**Configurar el canal:** conectar cada nodo a SRI una vez y, en la hoja **Red LoRa**, "Configurar canal SRI en este
+nodo" con la **misma frase** en todos (la llave del canal sale de la frase). Valor `alerta` en las custom vars:
+`tipo|pico*100|dif*100|epoch|cuenta` mientras falta mandarla.
 
 ## Configuración del nodo
 

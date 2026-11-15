@@ -18,6 +18,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 11. Sin internet (fase 3) | 13 nov 2026 | Paquete de región de La Huasteca: mapa, relieve, agua y clima guardado |
 | 12. Actualizaciones y "Actualizar todo" | 14 nov 2026 | Repositorio apt firmado (sudo apt upgrade) y botón para refrescar todo |
 | 13. Modos y Red LoRa | 15 nov 2026 | Tiempo real / Demo desde la interfaz; agregar y quitar nodos de la red LoRa |
+| 14. Alertas por LoRa | 15 nov 2026 | El nodo de campo manda su caída por radio a la base (firmware sri2) |
 
 ---
 
@@ -169,6 +170,15 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
   página local que espera al servidor; los botones de Google Maps se desactivan sin internet y la ventana
   (Chromium) ya no usa los servicios de Google en segundo plano.
 
+## Etapa 14 - Alertas de caída por la red LoRa (15 nov)
+
+- **Firmware `v1.18.0-sri2`**: al detectar una caída o golpe, el nodo manda por sí solo un mensaje al canal privado
+  "SRI" (tipo, diferencia, pico, posición GPS, hora y número de evento), 3 veces cada 20 s.
+- **Base**: SRI escucha ese canal, junta las repeticiones en una alerta, la muestra en el detector con el nombre del
+  nodo, suena la alarma, pinta el nodo de rojo y traza la ruta; la guarda en Eventos (columna Nodo y vía LoRa).
+- **Canal privado**: se configura desde la hoja Red LoRa con una frase común (la llave sale de la frase).
+- Probado con alertas simuladas en modo demo; la prueba por radio queda pendiente de un segundo nodo.
+
 ---
 
 ## Resultados de las pruebas (hasta el 10 nov)
@@ -191,7 +201,7 @@ Pruebas manuales (dejar caer y golpear el nodo sobre la mesa y superficies bland
   probar límite de 0.5-0.6 g y exigir que termine poco antes del pico).
 - Guardar la dif. mínima y la calibración **en la memoria del nodo** (hoy se pierden al reiniciarlo; la interfaz
   reenvía la calibración al conectar).
-- **Enviar la alerta por la malla LoRa** a otros nodos MeshCore, no solo a la PC conectada.
+- Probar las alertas por LoRa con un segundo nodo (alcance y tiempo de la caída a la base).
 - Probar el GPS en exteriores y medir el tiempo hasta la primera posición.
 - Volver a usar el **PIN de Bluetooth** si se encuentra cómo emparejar con PIN desde Linux (BlueZ).
 - Pruebas con portador humano y definición de la dif. mínima definitiva.

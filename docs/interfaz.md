@@ -94,7 +94,13 @@ contactos de MeshCore).
 | **Ruta a este nodo** | La ruta, el clima y el terreno apuntan a ese nodo en lugar de a la base (se marca **[ruta]**) |
 | **Quitar** | La base lo borra de sus contactos y SRI olvida su última posición (si vuelve a anunciarse puede regresar) |
 
-La tabla muestra tipo, último anuncio, posición, distancia a la base y saltos. En modo demo el nodo 1 hace de base y
+La tabla muestra tipo, último anuncio, posición, distancia a la base y saltos.
+
+**Alertas por LoRa.** Con el firmware `v1.18.0-sri2` y el **canal SRI** configurado con la misma frase en todos los
+nodos (botón **Configurar canal SRI en este nodo** de esta hoja), un nodo de campo que detecta una caída la manda por
+radio a la base. En SRI aparece un recuadro rojo **"[!] CAÍDA EN nodo (por LoRa)"** en la tarjeta del detector (con
+diferencia, pico, hora, posición y cuántos de los 3 envíos llegaron), suena la alarma, el nodo se pone rojo en el
+mapa y se traza la ruta hacia él. Se guarda en Eventos con el nombre del nodo y se borra con **Borrar alerta**. En modo demo el nodo 1 hace de base y
 los demás de nodos por radio (anunciar crea nodos "Campo N").
 
 ## Ubicación y ruta

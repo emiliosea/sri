@@ -17,6 +17,7 @@ import time
 
 from flask import Flask, jsonify, send_from_directory
 
+import sri_alertas
 import sri_config as cfg
 import sri_region as region
 
@@ -482,6 +483,8 @@ class DemoSource:
         self._auto = True                 # "agregar automáticamente" los nodos que se escuchen
         self._pendientes = []             # escuchados pero no agregados (cuando _auto = False)
         self._siguiente = 6               # número del próximo nodo simulado
+        self._canal = None                # índice del canal SRI simulado (None = sin configurar)
+        self._prox_alerta = time.time() + 40   # la primera alerta "por LoRa" de un nodo de campo
         now = int(time.time())
         self._nodes = []
         for i in range(count):
@@ -528,7 +531,23 @@ class DemoSource:
                     n["snr"] = round(random.uniform(-10, 10), 1)
                     n["lastHeard"] = now
 
+    def _alerta_demo(self):
+        """Cada ~2 min un nodo de campo simulado manda una alerta SRI por "LoRa" (3 repeticiones)."""
+        if time.time() < self._prox_alerta or len(self._nodes) < 2:
+            return
+        self._prox_alerta = time.time() + 120
+        n = random.choice(self._nodes[1:])
+        pos = n.get("position") or {}
+        caida = random.random() < 0.6
+        pico = round(random.uniform(9, 20), 2)
+        txt = (f"{n['user']['longName']}: SRI1 {'CAIDA' if caida else 'GOLPE'} dif {pico - 1:.2f}g pico {pico:.2f}g"
+               + (f" @{pos['latitude']:.6f},{pos['longitude']:.6f}" if "latitude" in pos else "")
+               + f" t{int(time.time())} #{random.randint(1, 9)}")
+        for k in (1, 2, 3):
+            alerta_red(sri_alertas.leer(f"{txt} ({k}/3)"))
+
     def nodes(self):
+        self._alerta_demo()
         with self._lock:
             nodes = last_seen.update(track_positions(track_uptime([normalize(n) for n in self._nodes])))
         for n in nodes:
@@ -554,7 +573,7 @@ class DemoSource:
 
     def red_info(self):
         with self._lock:
-            return {"ok": True, "autoagregar": self._auto, "codigo": "meshcore://demo" + "0" * 20 + "base",
+            return {"ok": True, "autoagregar": self._auto, "canal_sri": self._canal, "codigo": "meshcore://demo" + "0" * 20 + "base",
                     "pendientes": [{"key": f"{n['num']:064x}", "nombre": n["user"]["longName"], "tipo": "Companion",
                                     "escuchado": n["lastHeard"], "lat": n["position"].get("latitude"),
                                     "lon": n["position"].get("longitude")} for n in self._pendientes]}
@@ -587,6 +606,9 @@ class DemoSource:
             if accion == "autoagregar":
                 self._auto = bool(dato)
                 return {"ok": True, "autoagregar": self._auto}
+            if accion == "canal":
+                self._canal = 1
+                return {"ok": True}
         return {"ok": False, "error": "Acción no válida"}
 
     # Detector de caídas simulado: un evento cada ~45 s (para probar la interfaz)
@@ -689,6 +711,17 @@ def index():
 def api_nodes():
     nodes = source.nodes()
     nodes += last_seen.missing(nodes)  # aunque no haya conexión, mostrar la última posición guardada
+    # Alertas por LoRa: se pegan a su nodo; si el nodo no está en la lista, se agrega con la posición de la alerta
+    for a in alertas_red.activas():
+        n = next((x for x in nodes if x.get("long_name") == a["nombre"]), None)
+        if n is None:
+            n = {"num": int.from_bytes(a["nombre"].encode()[:4].ljust(4, b"_"), "big"), "id": "lora",
+                 "long_name": a["nombre"], "short_name": a["nombre"][:4].upper(), "hw_model": "Nodo de campo",
+                 "lat": None, "lon": None, "last_heard": a["ultima_rx"], "base": False}
+            nodes.append(n)
+        if a["lat"] is not None and n.get("lat") is None and not n.get("last_pos"):
+            n["last_pos"] = {"lat": a["lat"], "lon": a["lon"], "position_time": a["epoch"], "saved_at": a["recibido"]}
+        n.setdefault("alerta_red", a)
     return jsonify({"status": state, "server_time": int(time.time()), "nodes": nodes})
 
 
@@ -728,6 +761,7 @@ def make_source(mode, target):
         src = MeshCoreSource(state, track, ble=target) if mode == "ble" else \
             MeshCoreSource(state, track, dev_path=target)
         src.on_impact = log_impact
+        src.on_alerta_red = alerta_red
         cal = load_calibration()
         if cal:
             src.calibration = cal_string(cal)
@@ -766,6 +800,22 @@ def impact_log_path():
     return os.path.join(os.path.dirname(CONN_FILE), name)
 
 
+alertas_red = sri_alertas.AlertasRed()     # caídas/golpes que llegan por LoRa desde nodos de campo
+
+
+def alerta_red(a):
+    """Llega una alerta SRI por LoRa (ver sri_alertas). La primera vez se guarda en el registro de eventos."""
+    import json
+    nueva, al = alertas_red.registrar(a)
+    if not nueva:
+        return
+    rec = {"recibido": al["recibido"], "nodo": al["nombre"], "via": "lora", "tipo": al["tipo"],
+           "pico_g": al["pico_g"], "dif_g": al["dif_g"], "hora_nodo": al["epoch"], "cuenta": al["cuenta"],
+           "posicion": {"lat": al["lat"], "lon": al["lon"]} if al["lat"] is not None else None}
+    cfg.agregar_linea(impact_log_path(), json.dumps(rec, ensure_ascii=False))
+    print(f"*** ALERTA POR LORA de {al['nombre']}: {al['tipo'].upper()} dif {al['dif_g']} g ***", flush=True)
+
+
 def log_impact(imp):
     """Guarda cada caída/golpe en data/impactos.jsonl, con la posición conocida del nodo."""
     import json
@@ -787,6 +837,10 @@ def log_impact(imp):
 
 @app.route("/api/impacto/reset", methods=["POST"])
 def api_impact_reset():
+    from flask import request
+    nodo = (request.get_json(silent=True) or {}).get("nodo")
+    if nodo:                                       # alerta que llegó por LoRa desde ese nodo
+        return jsonify({"ok": True, "borradas": alertas_red.borrar(nodo)})
     if not hasattr(source, "impact_cmd"):
         return jsonify({"ok": False, "error": "Solo disponible con MeshCore"}), 400
     return jsonify(source.impact_cmd("impacto", "0"))
@@ -1343,6 +1397,8 @@ def api_red_cmd():
     if accion in ("quitar", "agregar") and not (isinstance(dato, str) and len(dato) == 64
                                                  and all(c in "0123456789abcdef" for c in dato.lower())):
         return jsonify({"ok": False, "error": "Llave de nodo no válida"}), 400
+    if accion == "canal" and not (isinstance(dato, str) and 6 <= len(dato.strip()) <= 64):
+        return jsonify({"ok": False, "error": "La frase del canal SRI debe tener entre 6 y 64 caracteres"}), 400
     r = source.red_cmd(accion, dato)
     if r.get("ok") and accion == "quitar":
         last_seen.olvidar(int(dato[:8], 16) if getattr(source, "mode", "") != "demo" else int(dato, 16))

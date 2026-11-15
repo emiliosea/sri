@@ -52,6 +52,8 @@ class MeshCoreSource:
         self._despertar = threading.Event()   # "Actualizar": no esperar el siguiente intento de conexión
         self._pendientes = {}       # llave -> nodo escuchado por LoRa pero no agregado (modo "agregar a mano")
         self._codigo = None         # código meshcore:// de la base para compartir
+        self.on_alerta_red = None   # función del servidor que recibe cada alerta SRI que llega por LoRa
+        self._canal_sri = "?"       # índice del canal "SRI" en el nodo (None = no configurado, "?" = sin revisar)
         self._cache = {"self": None, "contacts": [], "device": {}, "custom": {}}
         self._pos_rx = None         # cuándo llegó la última posición GPS válida
         self._impact = None         # estado del detector de caídas (firmware v1.18.0-rabanito)
@@ -153,6 +155,9 @@ class MeshCoreSource:
                         self._cache["device"], self._cache["custom"] = dev, custom
                     from meshcore import EventType
                     self.mc.subscribe(EventType.NEW_CONTACT, self._nodo_escuchado)
+                    self.mc.subscribe(EventType.CHANNEL_MSG_RECV, self._mensaje_canal)
+                    await self.mc.start_auto_message_fetching()     # bajar los mensajes que llegan por LoRa
+                    self._canal_sri = "?"
                     if self.calibration:   # la calibración vive en la RAM del nodo: reenviarla
                         await self._cmd(c.set_custom_var("acc_cal", self.calibration))
                     await self._poll()
@@ -280,6 +285,33 @@ class MeshCoreSource:
             with self._lock:
                 self._pendientes[ct["public_key"]] = ct
 
+    async def _mensaje_canal(self, ev):
+        """Mensajes de canal: si es una alerta SRI (de un nodo de campo), se avisa al servidor."""
+        import sri_alertas
+        p = ev.payload or {}
+        a = sri_alertas.leer(p.get("text", ""))
+        if a and self.on_alerta_red:
+            a["saltos"] = p.get("path_len")
+            try:
+                self.on_alerta_red(a)
+            except Exception as e:  # noqa: BLE001
+                print("Error al registrar alerta SRI:", e, flush=True)
+
+    async def _buscar_canal_sri(self):
+        """Índice del canal "SRI" en el nodo, y el primer lugar libre (para crearlo)."""
+        c = self.mc.commands
+        libre = None
+        for i in range(8):
+            ch = await self._cmd(c.get_channel(i))
+            if ch is None:
+                break
+            nombre = (ch.get("channel_name") or "").strip("\x00").strip()
+            if nombre == "SRI":
+                return i, libre
+            if not nombre and libre is None:
+                libre = i
+        return None, libre
+
     def _ejecutar(self, coro_fn, timeout=15):
         if self.mc is None or self.loop is None:
             return None, "No hay conexión con el nodo"
@@ -301,9 +333,14 @@ class MeshCoreSource:
                      "tipo": {1: "Companion", 2: "Repetidor", 3: "Sala", 4: "Sensor"}.get(c.get("type"), "?"),
                      "escuchado": c.get("_escuchado"), "lat": c.get("adv_lat") or None, "lon": c.get("adv_lon") or None}
                     for k, c in self._pendientes.items()]
+        if self._canal_sri == "?":
+            async def buscar():
+                return await self._buscar_canal_sri()
+            r, _ = self._ejecutar(buscar, 20)
+            self._canal_sri = r[0] if r else "?"
         manual = (self.mc.self_info or {}).get("manual_add_contacts")
         return {"ok": True, "autoagregar": None if manual is None else not manual, "codigo": self._codigo,
-                "pendientes": pend}
+                "pendientes": pend, "canal_sri": None if self._canal_sri == "?" else self._canal_sri}
 
     def red_cmd(self, accion, dato=None):
         c = self.mc.commands if self.mc else None
@@ -339,6 +376,16 @@ class MeshCoreSource:
             elif accion == "autoagregar":
                 r = await self._cmd(c.set_manual_add_contacts(not bool(dato)))
                 await self._cmd(c.send_appstart())         # vuelve a leer self_info con el ajuste nuevo
+            elif accion == "canal":
+                import sri_alertas
+                idx, libre = await self._buscar_canal_sri()
+                if idx is None:
+                    idx = libre
+                if idx is None:
+                    return "El nodo no tiene lugares libres para canales"
+                r = await self._cmd(c.set_channel(idx, sri_alertas.CANAL, sri_alertas.clave_canal(str(dato))))
+                if r is not None:
+                    self._canal_sri = idx
             else:
                 return "Acción no válida"
             if r is None:
