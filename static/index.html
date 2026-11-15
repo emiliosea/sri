@@ -357,6 +357,27 @@
   .grid th, .grid td { border: 1px solid var(--line); padding: 3px 10px; text-align: right; white-space: nowrap; }
   .grid th { background: var(--bg-2); color: var(--fg-2); font-weight: 400; }
   .grid td.izq, .grid th.izq { text-align: left; }
+  /* Hoja Dispositivo: lista + mapa de los nodos, y tabla de distancia/rumbo desde la base */
+  #devTop { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); border: 1px solid var(--fg-3);
+            min-height: 300px; height: 42vh; flex-shrink: 0; }
+  #devList { border-right: 1px solid var(--fg-3); overflow-y: auto; font-size: 12px; }
+  #devList .dn { padding: 6px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  #devList .dn:hover { background: var(--bg-hover); }
+  #devList .dn.sel { background: var(--blue-bg); color: var(--blue); }
+  #devList .dn .sub { display: block; margin-top: 2px; }
+  #devList .dn .dot { margin-right: 6px; } .dot.stale { background: var(--gray-mark); }
+  #devList .dn .al { color: var(--red); font-weight: 700; }
+  #devMapa { min-height: 0; }
+  #devRadar td.al, #devRadar tr.al td { color: var(--red); }
+  #devRadar tr.sel td { background: var(--blue-bg); }
+  #devRadar tr { cursor: pointer; }
+  #devFicha table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  #devFicha td { padding: 3px 0; text-align: left; border: none; white-space: normal; }
+  #devFicha td:first-child { color: var(--fg-3); width: 42%; }
+  .devlinea { stroke: var(--fg-2); stroke-dasharray: 3 5; } .devlinea.al { stroke: var(--red); }
+  @media (max-width: 760px) { #devTop { grid-template-columns: 1fr; height: auto; }
+                              #devList { border-right: none; border-bottom: 1px solid var(--fg-3); max-height: 200px; }
+                              #devMapa { height: 280px; } }
   .grid td.fila { background: var(--bg-2); color: var(--fg-3); text-align: center; width: 30px; }
   .grid .igroup { margin: 14px 0 4px; }
   #devicePane #infoBody { max-height: none; overflow: visible; padding: 0; }
@@ -657,7 +678,17 @@
       <div id="terrenoPlano"></div>
     </div>
     <div id="devicePane" class="sheet" style="display:none">
-      <div class="chead"><div><b>Información del dispositivo</b></div></div>
+      <div class="chead"><div><b>Dispositivos</b> <span class="sub" id="devCuenta"></span></div>
+        <div><button class="cbtn" id="devCentrar" title="Ver todos los nodos con posición">Centrar todos</button>
+             <button class="cbtn" id="devSeguir" title="Mantener el mapa centrado en el nodo seleccionado">Seguir selección</button></div></div>
+      <div id="devTop">
+        <div id="devList"></div>
+        <div id="devMapa"></div>
+      </div>
+      <div id="devRadarTit"><b>Posición respecto a la base</b> <span class="sub" id="devBaseNom"></span></div>
+      <div id="devRadar" class="grid"></div>
+      <div class="chead"><div><b id="devFichaTit">Información del dispositivo</b></div></div>
+      <div id="devFicha" class="grid" style="display:none"></div>
       <div id="infoBody" class="grid"><div class="sub">Cargando...</div></div>
     </div>
     <div id="tabs">
@@ -1087,11 +1118,7 @@ document.getElementById('redPane').addEventListener('click', e => {
     const n = nodes.find(x => x.num === +b.dataset.ver), p = n && posOf(n);
     if (p) { showSheet('mapa'); map.setView([p.lat, p.lon], 15); selected = n.num; }
   } else if (b.dataset.ruta) {
-    const num = +b.dataset.ruta, n = nodes.find(x => x.num === num);
-    objetivoNum = n && n.base ? null : num;
-    rutaDestino = null;
-    if (rutaLayer || rutaCoords) trazarRuta(undefined, { ajustar: true, pestana: false });
-    climaClave = null; actualizarClima(true); tClave = null;
+    const n = apuntarA(+b.dataset.ruta);
     redMsg(`La ruta, el clima y el terreno ahora apuntan a ${n ? n.long_name : 'la base'}.`, 'ok');
     renderRed();
   } else if (b.dataset.quitar) {
@@ -1256,6 +1283,7 @@ function render(status) {
   renderMine(status);
   actualizarClima();
   renderRed();
+  renderDispositivos();
   autoRuta();
   loadInfo(status);
   renderDetail();
@@ -1283,6 +1311,167 @@ function renderDetail() {
     rows.map(([k, v]) => `<tr><td>${k}</td><td>${v?.html ?? esc(v ?? '--')}</td></tr>`).join('')}</table>`;
   tick();
 }
+
+// ---------- Hoja Dispositivo: dónde están los nodos ----------
+// Lista + mapa propio con todos los nodos (líneas punteadas desde la base), tabla de distancia/rumbo/desnivel
+// desde la base y la ficha del nodo seleccionado (la base muestra su información completa del firmware).
+let devMapa = null, devSel = null, devSeguir = false, devAjustado = false;
+const devMarcas = {}, devLineas = {};
+const RUMBOS = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+function rumboGrados(a, b) {
+  const r = Math.PI / 180, f1 = a.lat * r, f2 = b.lat * r, dl = (b.lon - a.lon) * r;
+  const y = Math.sin(dl) * Math.cos(f2), x = Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl);
+  return (Math.atan2(y, x) / r + 360) % 360;
+}
+const rumboTexto = g => `${RUMBOS[Math.round(g / 45) % 8]} ${Math.round(g)}°`;
+const baseDev = () => nodes.find(n => n.base) || nodes.find(n => n.num === lastStatus.my_node) || null;
+const alertaTexto = a => `ALERTA ${a.tipo === 'caida' ? 'CAÍDA' : a.tipo === 'golpe' ? 'GOLPE' : String(a.tipo || '').toUpperCase()}`;
+const estadoDot = n => n.alerta_red ? 'err' : isStale(n) ? 'stale' : 'ok';
+
+function relDev(n, base, bp) {
+  const p = posOf(n);
+  if (!p) return { p: null };
+  if (!bp || n === base) return { p };
+  return { p, d: distM(bp, p), g: rumboGrados(bp, p),
+           dz: p.altitude != null && bp.altitude != null ? p.altitude - bp.altitude : null };
+}
+
+function crearDevMapa() {
+  devMapa = L.map('devMapa', { zoomControl: false }).setView([25.66, -100.42], 13);
+  L.control.zoom({ zoomInText: '+', zoomOutText: '-' }).addTo(devMapa);
+  capasBase.push(L.tileLayer(urlBase(), { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(devMapa));
+}
+
+function ajustarDevMapa() {
+  const pts = nodes.map(posOf).filter(Boolean).map(p => [p.lat, p.lon]);
+  if (!devMapa || !pts.length) return false;
+  if (pts.length === 1) devMapa.setView(pts[0], 15); else devMapa.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
+  return true;
+}
+
+function renderDispositivos() {
+  if (sheetActual !== 'dispositivo') return;
+  if (!devMapa) crearDevMapa();
+  const base = baseDev(), bp = base && posOf(base);
+  if (devSel != null && !nodes.some(n => n.num === devSel)) devSel = null;
+  const sel = nodes.find(n => n.num === devSel) || base;
+  const lista = [...nodes].sort((a, b) => (b === base) - (a === base) || !!b.alerta_red - !!a.alerta_red
+                                          || String(a.long_name).localeCompare(String(b.long_name), 'es', { numeric: true }));
+  const rel = new Map(lista.map(n => [n.num, relDev(n, base, bp)]));
+  document.getElementById('devCuenta').textContent = `(${nodes.length})`;
+  document.getElementById('devBaseNom').textContent = base ? `(${base.long_name})` : '';
+  document.getElementById('devSeguir').classList.toggle('primary', devSeguir);
+
+  // Lista
+  document.getElementById('devList').innerHTML = lista.length ? lista.map(n => {
+    const r = rel.get(n.num), p = r.p;
+    let linea;
+    if (!p) linea = 'sin posición';
+    else if (r.d != null) linea = `${fmtDist(Math.round(r.d))} ${RUMBOS[Math.round(r.g / 45) % 8]}`;
+    else linea = `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`;
+    if (p && !p.live) linea += ` · última pos. ${ago(p.position_time)}`;
+    return `<div class="dn ${sel && n.num === sel.num ? 'sel' : ''}" data-dev="${n.num}">
+      <span class="dot ${estadoDot(n)}"></span><b>${esc(n.long_name)}</b>${n === base ? ' <span class="sub" style="display:inline">base</span>' : ''}
+      ${n.alerta_red ? ` <span class="al">${alertaTexto(n.alerta_red)}</span>` : ''}
+      <span class="sub">${linea} · ${ago(n.last_heard)}</span></div>`;
+  }).join('') : '<div class="dn sub">Sin nodos todavía.</div>';
+
+  // Mapa: marcadores y líneas desde la base
+  const vistos = new Set();
+  for (const n of lista) {
+    const p = rel.get(n.num).p;
+    if (!p) continue;
+    vistos.add(n.num);
+    if (!devMarcas[n.num]) devMarcas[n.num] = L.marker([p.lat, p.lon]).addTo(devMapa)
+      .on('click', () => { devSel = n.num; renderDispositivos(); });
+    const r = rel.get(n.num);
+    devMarcas[n.num].setLatLng([p.lat, p.lon]).setIcon(icon(n, n === base, !p.live))
+      .setZIndexOffset(sel && n.num === sel.num ? 2000 : p.live ? 1000 : 0)
+      .bindTooltip(`<b>${esc(n.long_name)}</b>${r.d != null ? ` | ${fmtDist(Math.round(r.d))} ${rumboTexto(r.g)}` : ''}<br>` +
+                   `<span class="mono">${coordText(p)}</span>${p.live ? '' : `<br><i>última posición ${ago(p.position_time)}</i>`}`);
+    if (bp && n !== base) {
+      const cls = 'devlinea' + (n.alerta_red ? ' al' : '');
+      if (!devLineas[n.num]) devLineas[n.num] = L.polyline([], { className: cls, weight: 2, interactive: false }).addTo(devMapa);
+      devLineas[n.num].setLatLngs([[bp.lat, bp.lon], [p.lat, p.lon]]);
+      const el = devLineas[n.num].getElement();
+      if (el) el.setAttribute('class', cls + ' leaflet-interactive');
+    } else if (devLineas[n.num]) { devMapa.removeLayer(devLineas[n.num]); delete devLineas[n.num]; }
+  }
+  for (const num in devMarcas) if (!vistos.has(+num)) { devMapa.removeLayer(devMarcas[num]); delete devMarcas[num]; }
+  for (const num in devLineas) if (!vistos.has(+num)) { devMapa.removeLayer(devLineas[num]); delete devLineas[num]; }
+  if (!devAjustado) devAjustado = ajustarDevMapa();
+  const sp = sel && rel.get(sel.num)?.p;
+  if (devSeguir && sp) devMapa.panTo([sp.lat, sp.lon]);
+
+  // Tabla de distancia y rumbo desde la base
+  const filas = lista.map(n => {
+    const r = rel.get(n.num), p = r.p, esBase = n === base;
+    const cls = [sel && n.num === sel.num ? 'sel' : '', n.alerta_red ? 'al' : ''].join(' ');
+    return `<tr class="${cls}" data-dev="${n.num}">
+      <td class="izq"><span class="dot ${estadoDot(n)}"></span> ${esc(n.long_name)}${esBase ? ' <span class="sub">(base)</span>' : ''}${n.alerta_red ? ` <b>${alertaTexto(n.alerta_red)}</b>` : ''}</td>
+      <td>${esBase ? '-' : r.d != null ? fmtDist(Math.round(r.d)) : '--'}</td>
+      <td>${esBase ? '-' : r.g != null ? rumboTexto(r.g) : '--'}</td>
+      <td>${esBase ? (p && p.altitude != null ? `${Math.round(p.altitude)} m` : '--') : r.dz != null ? `${r.dz > 0 ? '+' : ''}${Math.round(r.dz)} m` : '--'}</td>
+      <td>${esBase ? '-' : `${n.snr != null ? fmt(n.snr, 1, ' dB') : '--'} / ${n.hops_away != null ? n.hops_away + ' saltos' : '?'}`}</td>
+      <td>${ago(n.last_heard)}</td>
+      <td class="izq mono">${p ? `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}${p.live ? '' : ' <span class="sub">(última)</span>'}` : '<span class="sub">sin posición</span>'}</td></tr>`;
+  });
+  document.getElementById('devRadar').innerHTML = lista.length ? `<table><tr><th class="izq">Nodo</th><th>Distancia</th><th>Rumbo</th>
+    <th title="Diferencia de altura con la base (en la base: su altitud)">Desnivel</th><th>Señal / saltos</th><th>Visto</th><th class="izq">Posición</th></tr>${filas.join('')}</table>
+    ${bp ? '' : '<div class="sub">La base no tiene posición: no se pueden calcular distancias ni rumbos.</div>'}` : '';
+
+  // Ficha del seleccionado: la base usa la información completa del firmware (/api/info)
+  const ficha = document.getElementById('devFicha'), info = document.getElementById('infoBody');
+  const esBaseSel = !sel || sel === base;
+  document.getElementById('devFichaTit').textContent = esBaseSel ? `Información del dispositivo${base ? ` (${base.long_name})` : ''}`
+                                                                  : sel.long_name;
+  info.style.display = esBaseSel ? '' : 'none';
+  ficha.style.display = esBaseSel ? 'none' : '';
+  if (!esBaseSel) {
+    const r = rel.get(sel.num), p = r.p, a = sel.alerta_red;
+    const filasF = [
+      ...(a ? [['Alerta', { html: `<b class="err">${alertaTexto(a)}</b> diferencia ${fmt(a.dif_g, 2, ' g')}, pico ${fmt(a.pico_g, 2, ' g')} | recibida ${ago(a.recibido)}` }]] : []),
+      ['Distancia a la base', r.d != null ? `${fmtDist(Math.round(r.d))} rumbo ${rumboTexto(r.g)}` : '--'],
+      ['Desnivel con la base', r.dz != null ? `${r.dz > 0 ? '+' : ''}${Math.round(r.dz)} m` : '--'],
+      ['ID', sel.id], ['Hardware', sel.hw_model], ['Último escuchado', ago(sel.last_heard)],
+      ['Posición', p ? (p.live ? 'Actual' : `Última conocida (${ago(p.position_time)})`) : 'Sin posición'],
+      ['Batería', batteryText(sel.battery)], ['Voltaje', fmt(sel.voltage, 2, ' V')],
+      ['SNR', fmt(sel.snr, 1, ' dB')], ['Saltos', sel.hops_away ?? '--'],
+    ];
+    ficha.innerHTML = (p ? `<div class="coordbox" style="padding-bottom:10px">${coordsBlock(p)}</div>` : '') +
+      `<div style="margin-bottom:8px"><button class="cbtn" data-dev-ver="${sel.num}">Ver en el mapa</button>
+         <button class="cbtn" data-dev-ruta="${sel.num}">${objetivoNum === sel.num ? 'Ruta: ya apunta aquí' : 'Ruta a este nodo'}</button></div>` +
+      `<table>${filasF.map(([k, v]) => `<tr><td>${k}</td><td>${v?.html ?? esc(v ?? '--')}</td></tr>`).join('')}</table>`;
+  }
+}
+
+// La ruta, el clima y el terreno pasan a apuntar a este nodo (o a la base)
+function apuntarA(num) {
+  const n = nodes.find(x => x.num === num);
+  objetivoNum = n && n.base ? null : num;
+  rutaDestino = null;
+  if (rutaLayer || rutaCoords) trazarRuta(undefined, { ajustar: true, pestana: false });
+  climaClave = null; actualizarClima(true); tClave = null;
+  return n;
+}
+
+document.getElementById('devicePane').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b && b.id === 'devCentrar') { ajustarDevMapa(); return; }
+  if (b && b.id === 'devSeguir') { devSeguir = !devSeguir; renderDispositivos(); return; }
+  if (b && b.dataset.devVer) {
+    const n = nodes.find(x => x.num === +b.dataset.devVer), p = n && posOf(n);
+    if (p) { showSheet('mapa'); map.setView([p.lat, p.lon], 15); selected = n.num; render(lastStatus); }
+    return;
+  }
+  if (b && b.dataset.devRuta) { apuntarA(+b.dataset.devRuta); renderDispositivos(); return; }
+  const fila = e.target.closest('[data-dev]');
+  if (!fila || e.target.closest('a, button')) return;
+  devSel = +fila.dataset.dev;
+  const n = nodes.find(x => x.num === devSel), p = n && posOf(n);
+  if (p && devMapa) devMapa.setView([p.lat, p.lon], Math.max(devMapa.getZoom(), 15));
+  renderDispositivos();
+});
 
 function select(num, pan = true) {
   selected = selected === num ? null : num;
@@ -2801,6 +2990,7 @@ function showSheet(name) {
   if (name === 'eventos') loadEvents();
   if (name === 'terreno') abrirTerreno();
   if (name === 'red') cargarRed();
+  if (name === 'dispositivo') { renderDispositivos(); devMapa.invalidateSize(); if (!devAjustado) devAjustado = ajustarDevMapa(); }
 }
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => showSheet(b.dataset.tab));
 // ?hoja=grafica|eventos|dispositivo abre esa hoja al cargar (útil para enlaces y capturas)

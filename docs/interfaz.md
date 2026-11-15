@@ -43,7 +43,14 @@ los marcadores son los movimientos evaluados (triángulo rojo = alertó, círcul
 
 ![Hoja Eventos](img/interfaz-eventos.png)
 
-**Dispositivo** - identidad, firmware, GPS, sensores y radio del nodo.
+**Dispositivo** - dónde están los nodos:
+- **Lista y mapa**: todos los nodos con su indicador (azul en línea, gris sin oír en 15 min, rojo con alerta), la
+  distancia y dirección desde la base, y un mapa propio con líneas punteadas desde la base (rojas si el nodo tiene
+  alerta). Clic en un nodo (lista, mapa o tabla) lo selecciona y lo centra; *Centrar todos* y *Seguir selección*.
+- **Posición respecto a la base**: distancia, rumbo (N, NE... y grados), desnivel, señal (SNR / saltos), última vez
+  escuchado y coordenadas. Se calcula con las coordenadas, así que funciona sin internet y fuera del paquete de región.
+- **Ficha**: la base muestra su información completa (identidad, firmware, GPS, sensores, radio); un nodo de campo
+  muestra su alerta, coordenadas (Copiar, Google Maps), batería y señal, con *Ver en el mapa* y *Ruta a este nodo*.
 
 **Terreno** - vista 3D del área que cubre el nodo, la PC y la ruta. Se gira e inclina arrastrando, se acerca
 con la rueda; botones 1x/2x/4x para exagerar el relieve y "Vista inicial". Dos modos:
