@@ -23,7 +23,7 @@ Se conserva el código actual (Python + la interfaz HTML) y se separa en dos pie
    - datos sin conexión: mapas, relieve, agua (paquetes descargados antes)
         ^
         |  http://localhost:5000
- ventana "sri-kiosco" (pywebview / WebKitGTK, pantalla completa, sin navegador)
+ ventana "sri-ventana" (GTK + WebKitGTK; con --kiosco a pantalla completa, sin navegador)
    - solo muestra la interfaz; si se cierra o falla, el seguimiento sigue
 ```
 

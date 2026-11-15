@@ -19,6 +19,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 12. Actualizaciones y "Actualizar todo" | 14 nov 2026 | Repositorio apt firmado (sudo apt upgrade) y botón para refrescar todo |
 | 13. Modos y Red LoRa | 15 nov 2026 | Tiempo real / Demo desde la interfaz; agregar y quitar nodos de la red LoRa |
 | 14. Alertas por LoRa | 15 nov 2026 | El nodo de campo manda su caída por radio a la base (firmware sri2) |
+| 15. Ventana nativa | 15 nov 2026 | SRI sin navegador: ventana propia GTK + WebKit |
 
 ---
 
@@ -178,6 +179,16 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
   nodo, suena la alarma, pinta el nodo de rojo y traza la ruta; la guarda en Eventos (columna Nodo y vía LoRa).
 - **Canal privado**: se configura desde la hoja Red LoRa con una frase común (la llave sale de la frase).
 - Probado con alertas simuladas en modo demo; la prueba por radio queda pendiente de un segundo nodo.
+
+## Etapa 15 - Ventana nativa (15 nov)
+
+- La interfaz ya no se abre en Chromium: **`sri-ventana`** es una ventana propia hecha con **GTK + WebKitGTK** (el motor
+  de Safari y del navegador de GNOME), con el nombre y el ícono de SRI, una sola instancia, pantalla propia de
+  "SRI no responde" (nunca la del navegador), enlaces externos al navegador del sistema y descargas a la carpeta de
+  descargas. Sin servicios de Google y sin depender de Chromium (~300 MB menos).
+- Mismo servidor e interfaz: se probaron en WebKit el mapa, el terreno 3D (con un respaldo para el piso en blanco y
+  negro, porque WebKit no tiene `ctx.filter`), las alertas por LoRa y la hoja Red LoRa.
+- La ventana de pantalla completa de la estación (`sri-kiosco`) usa la misma ventana con `--kiosco`.
 
 ---
 

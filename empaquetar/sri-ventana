@@ -1,0 +1,166 @@
+#!/usr/bin/python3
+"""Ventana nativa de SRI: GTK + WebKit (WebKitGTK), sin navegador.
+
+Muestra la interfaz que sirve el servidor de SRI (http://localhost:PUERTO) en una ventana propia, con el nombre
+y el ícono de SRI. No es un navegador: no tiene barras, pestañas, pantallas de error de Chrome ni servicios de
+Google. Usa las librerías del sistema (python3-gi, gir1.2-webkit2-4.1).
+
+    sri-ventana [--puerto 5000] [--kiosco] [--demo]
+
+  --kiosco   pantalla completa sin bordes (modo estación)
+  F5 recargar | F11 pantalla completa | Ctrl + / Ctrl - / Ctrl 0 tamaño | Ctrl+Q salir
+Si ya hay una ventana de SRI abierta (con el mismo puerto), la trae al frente en vez de abrir otra.
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+import urllib.parse
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("WebKit2", "4.1")
+from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
+
+ARRANQUE = "/opt/sri/arranque.html"
+
+
+def pagina_error(puerto, detalle):
+    """Pantalla propia cuando el servidor no responde (nunca la del navegador): reintenta sola."""
+    return f"""<!doctype html><html lang="es"><head><meta charset="utf-8"><style>
+      html,body{{margin:0;height:100%;font-family:ui-monospace,"DejaVu Sans Mono",monospace;background:#fff;color:#000}}
+      @media (prefers-color-scheme: dark){{html,body{{background:#000;color:#fff}}}}
+      main{{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}}
+      b{{font-size:15px}} small{{opacity:.7;max-width:520px;text-align:center}}</style></head><body><main>
+      <b>SRI no responde todavía</b><small>Se vuelve a intentar cada 2 segundos. Si no se arregla, cierra esta
+      ventana y vuelve a abrir SRI. Registro: ~/.local/share/sri/sri.log</small><small>{GLib.markup_escape_text(detalle)}</small>
+      <img id="p" style="display:none"></main><script>
+      const u = "http://localhost:{puerto}/";
+      setInterval(() => {{ const i = new Image(); i.onload = () => location.replace(u);
+                           i.src = u + "static/logo-claro.svg?t=" + Date.now(); }}, 2000);
+      </script></body></html>"""
+
+
+class Ventana(Gtk.ApplicationWindow):
+    def __init__(self, app, puerto, kiosco, hoja=None):
+        super().__init__(application=app, title="SRI")
+        self.puerto, self.kiosco = puerto, kiosco
+        self.inicio = f"http://localhost:{puerto}/" + (f"?hoja={urllib.parse.quote(hoja)}" if hoja else "")
+        self.set_icon_name("sri")
+        self.set_default_size(1400, 900)
+
+        # Datos de la página (tema, sonido...) guardados entre sesiones, aparte de cualquier navegador
+        base = os.path.join(GLib.get_user_data_dir(), "sri-ventana-webkit")
+        datos = WebKit2.WebsiteDataManager(base_data_directory=base,
+                                           base_cache_directory=os.path.join(GLib.get_user_cache_dir(), "sri-ventana"))
+        ctx = WebKit2.WebContext.new_with_website_data_manager(datos)
+        ctx.connect("download-started", self._descarga)
+        self.web = WebKit2.WebView.new_with_context(ctx)
+        s = self.web.get_settings()
+        s.set_enable_developer_extras("SRI_DEPURAR" in os.environ)
+        s.set_allow_file_access_from_file_urls(True)        # la página de arranque prueba el servidor
+        s.set_javascript_can_access_clipboard(True)          # "Copiar" coordenadas y código del canal
+        s.set_enable_back_forward_navigation_gestures(False)
+        self.web.connect("decide-policy", self._politica)
+        self.web.connect("load-failed", self._fallo)
+        self.web.connect("context-menu", lambda *a: True)   # sin menú de navegador al clic derecho
+        self.add(self.web)
+
+        self.connect("key-press-event", self._teclas)
+        if kiosco:
+            self.set_decorated(False)
+            self.fullscreen()
+        url = f"file://{ARRANQUE}#{puerto}" if os.path.exists(ARRANQUE) and not hoja else self.inicio
+        self.web.load_uri(url)
+        self.show_all()
+
+    # Solo SRI se abre dentro de la ventana; cualquier otro enlace (Google Maps...) va al navegador del sistema
+    def _politica(self, web, decision, tipo):
+        if tipo in (WebKit2.PolicyDecisionType.NAVIGATION_ACTION, WebKit2.PolicyDecisionType.NEW_WINDOW_ACTION):
+            uri = decision.get_navigation_action().get_request().get_uri()
+            p = urllib.parse.urlparse(uri)
+            propio = p.scheme in ("file", "about", "data", "blob") or (p.hostname in ("localhost", "127.0.0.1")
+                                                                       and p.port == self.puerto)
+            if tipo == WebKit2.PolicyDecisionType.NEW_WINDOW_ACTION or not propio:
+                decision.ignore()
+                if not propio:
+                    Gio.AppInfo.launch_default_for_uri_async(uri, None, None, None, None)
+                return True
+        return False
+
+    def _fallo(self, web, evento, uri, error):
+        if error.matches(WebKit2.NetworkError.quark(), WebKit2.NetworkError.CANCELLED):
+            return False
+        web.load_alternate_html(pagina_error(self.puerto, error.message), uri, None)
+        return True
+
+    # Descargas (Exportar CSV): a la carpeta de descargas, con aviso
+    def _descarga(self, ctx, descarga):
+        def destino(d, sugerido):
+            carpeta = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOWNLOAD) or GLib.get_home_dir()
+            ruta = os.path.join(carpeta, sugerido or "sri-descarga")
+            d.set_destination("file://" + ruta)
+            d.connect("finished", lambda *a: self._aviso(f"Guardado en {ruta}"))
+            return True
+        descarga.connect("decide-destination", destino)
+
+    def _aviso(self, texto):
+        try:
+            subprocess.Popen(["notify-send", "-i", "sri", "SRI", texto])
+        except OSError:
+            print(texto, flush=True)
+
+    def _teclas(self, w, ev):
+        ctrl = ev.state & Gdk.ModifierType.CONTROL_MASK
+        k = Gdk.keyval_name(ev.keyval)
+        if k == "F5":
+            self.web.reload()
+        elif k == "F11" and not self.kiosco:
+            if self.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
+                self.unfullscreen()
+            else:
+                self.fullscreen()
+        elif ctrl and k in ("plus", "equal", "KP_Add"):
+            self.web.set_zoom_level(min(self.web.get_zoom_level() + 0.1, 3))
+        elif ctrl and k in ("minus", "KP_Subtract"):
+            self.web.set_zoom_level(max(self.web.get_zoom_level() - 0.1, 0.5))
+        elif ctrl and k == "0":
+            self.web.set_zoom_level(1.0)
+        elif ctrl and k == "q":
+            self.get_application().quit()
+        else:
+            return False
+        return True
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Ventana de SRI (GTK + WebKit)")
+    ap.add_argument("--puerto", type=int, default=5000)
+    ap.add_argument("--kiosco", action="store_true", help="pantalla completa sin bordes (estación)")
+    ap.add_argument("--demo", action="store_true", help="ventana de la demo (otra instancia)")
+    ap.add_argument("--hoja", help="abrir en una hoja: mapa, grafica, eventos, dispositivo, terreno, red")
+    a = ap.parse_args()
+
+    clase = "sri-demo" if a.demo else "sri"
+    GLib.set_prgname(clase)            # WM_CLASS: el escritorio la asocia con sri.desktop y su ícono
+    Gdk.set_program_class(clase)
+    GLib.set_application_name("SRI")
+    # Una sola ventana por puerto: abrir SRI otra vez solo la trae al frente
+    app = Gtk.Application(application_id=f"io.github.emiliosea.sri.p{a.puerto}", flags=Gio.ApplicationFlags.FLAGS_NONE)
+    estado = {}
+
+    def activar(app_):
+        if "v" in estado:
+            estado["v"].present()
+            return
+        estado["v"] = Ventana(app_, a.puerto, a.kiosco, a.hoja)
+
+    app.connect("activate", activar)
+    return app.run([sys.argv[0]])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

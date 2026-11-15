@@ -13,12 +13,12 @@ empaquetar/construir.sh
 
 Crea:
 - `empaquetar/dist/sri/` - el programa (Python y dependencias incluidos, ~60 MB).
-- `empaquetar/dist/sri_0.5.0_amd64.deb` - el paquete para instalar (~21 MB).
+- `empaquetar/dist/sri_0.6.0_amd64.deb` - el paquete para instalar (~21 MB).
 
 ## Instalar
 
 ```bash
-sudo apt install ./sri_0.5.0_amd64.deb
+sudo apt install ./sri_0.6.0_amd64.deb
 ```
 
 Queda como **un programa más**: aparece **SRI** (con su ícono) en el menú de aplicaciones. Al abrirlo arranca el
@@ -69,7 +69,10 @@ el usuario de sistema `sri` (grupos `dialout` y `bluetooth`) y guarda los datos 
 de pantalla completa (`sri-kiosco`) se abre al iniciar sesión y se reabre si se cierra. Abrir SRI desde el menú
 con el servicio activo solo muestra la ventana.
 
-Necesita `bluez` y `curl`; para la ventana, Chromium (o Firefox).
+Necesita `bluez` y `curl`. La ventana es **nativa** (`sri-ventana`: GTK + WebKitGTK, paquetes `python3-gi` y
+`gir1.2-webkit2-4.1`, que apt instala solo): no usa navegador ni servicios de Google. Atajos: F5 recargar, F11 pantalla
+completa, Ctrl +/- tamaño, Ctrl+Q salir; los enlaces externos (Google Maps) se abren en el navegador del sistema y
+"Exportar CSV" guarda en la carpeta de descargas. Si WebKitGTK no está, se usa Chromium como respaldo.
 
 ## Configurar
 

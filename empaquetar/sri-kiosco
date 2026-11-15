@@ -16,7 +16,7 @@ PAUSA="$DIR/pausado"
 mkdir -p "$DIR"
 
 case "${1:-}" in
-  --pausar)   touch "$PAUSA"; pkill -f -- "--user-data-dir=$DIR/perfil" || true; pkill -f -- "-profile $DIR/perfil-ff" || true
+  --pausar)   touch "$PAUSA"; pkill -f -- "--user-data-dir=$DIR/perfil" || true; pkill -f -- "-profile $DIR/perfil-ff" || true; pkill -f -- "sri-ventana --puerto" || true
               echo "Ventana SRI en pausa. Para volver: sri-kiosco --reanudar"; exit 0 ;;
   --reanudar) rm -f "$PAUSA"; echo "Listo. Se abrirá la próxima vez que corra sri-kiosco (o al iniciar sesión)."
               exec "$0" ;;
@@ -31,7 +31,10 @@ for _ in $(seq 1 120); do
 done
 
 abrir() {
-  if command -v chromium >/dev/null || command -v chromium-browser >/dev/null; then
+  if python3 -c "import gi; gi.require_version('Gtk', '3.0'); gi.require_version('WebKit2', '4.1')" 2>/dev/null; then
+    if [ "$MODO_VENTANA" = 1 ]; then /opt/sri/sri-ventana --puerto "${PUERTO:-5000}"
+    else /opt/sri/sri-ventana --puerto "${PUERTO:-5000}" --kiosco; fi
+  elif command -v chromium >/dev/null || command -v chromium-browser >/dev/null; then
     local NAV; NAV="$(command -v chromium || command -v chromium-browser)"
     local EXTRA=(--kiosk); [ "$MODO_VENTANA" = 1 ] && EXTRA=(--window-size=1280,800)
     "$NAV" --app="file:///opt/sri/arranque.html#${PUERTO:-5000}" "${EXTRA[@]}" --user-data-dir="$DIR/perfil" --no-first-run --noerrdialogs \

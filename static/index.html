@@ -2208,8 +2208,19 @@ function pisoTile(z, x, y, oscuro) {
   img.onload = () => {
     const c = document.createElement('canvas'); c.width = c.height = 256;
     const g = c.getContext('2d');
-    g.filter = oscuro ? 'grayscale(1) invert(1) brightness(.85) contrast(1.1)' : 'grayscale(1) contrast(1.05)';
-    g.drawImage(img, 0, 0);
+    if ('filter' in g) {
+      g.filter = oscuro ? 'grayscale(1) invert(1) brightness(.85) contrast(1.1)' : 'grayscale(1) contrast(1.05)';
+      g.drawImage(img, 0, 0);
+    } else {
+      // WebKit (ventana nativa) no tiene ctx.filter: blanco y negro con modos de mezcla
+      g.drawImage(img, 0, 0);
+      g.globalCompositeOperation = 'saturation'; g.fillStyle = '#808080'; g.fillRect(0, 0, 256, 256);
+      if (oscuro) {
+        g.globalCompositeOperation = 'difference'; g.fillStyle = '#ffffff'; g.fillRect(0, 0, 256, 256);
+        g.globalCompositeOperation = 'multiply'; g.fillStyle = '#d9d9d9'; g.fillRect(0, 0, 256, 256);
+      }
+      g.globalCompositeOperation = 'source-over';
+    }
     ent.cv = c; ent.listo = true; redibujarMalla();
   };
   img.src = `/mapa/${z}/${x}/${y}.png`;

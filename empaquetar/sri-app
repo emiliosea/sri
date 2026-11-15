@@ -21,8 +21,17 @@ aviso() {   # mensaje visible aunque se abra desde el menú
   echo "$1" >&2
 }
 
-# Ya abierta: el navegador le pasa la orden a la ventana existente y esa copia sigue a cargo del seguimiento
-if pgrep -f -- "--user-data-dir=$PERFIL" >/dev/null; then
+# Ventana nativa (GTK + WebKit) si el sistema la puede mostrar; si no, Chromium como respaldo
+VENTANA="${SRI_VENTANA:-/opt/sri/sri-ventana}"
+NATIVA=0
+python3 -c "import gi; gi.require_version('Gtk', '3.0'); gi.require_version('WebKit2', '4.1')" 2>/dev/null && NATIVA=1
+EXTRA_V=(); [ "$DEMO" = 1 ] && EXTRA_V=(--demo)
+
+# Ya abierta: la ventana existente pasa al frente y esa copia sigue a cargo del seguimiento
+if [ "$NATIVA" = 1 ] && pgrep -f -- "sri-ventana --puerto $PUERTO" >/dev/null; then
+  exec "$VENTANA" --puerto "$PUERTO" "${EXTRA_V[@]}"
+fi
+if [ "$NATIVA" = 0 ] && pgrep -f -- "--user-data-dir=$PERFIL" >/dev/null; then
   exec "$(command -v chromium || command -v chromium-browser)" --app="$URL" --user-data-dir="$PERFIL"
 fi
 
@@ -50,7 +59,9 @@ trap detener EXIT INT TERM
 asegurar_servidor || { aviso "No se pudo iniciar SRI. Revisa $DATOS/sri.log"; exit 1; }
 
 NAV="$(command -v chromium || command -v chromium-browser || true)"
-if [ -n "$NAV" ]; then
+if [ "$NATIVA" = 1 ]; then
+  "$VENTANA" --puerto "$PUERTO" "${EXTRA_V[@]}" &
+elif [ -n "$NAV" ]; then
   # La ventana abre primero la página local de arranque (entra a SRI cuando el servidor responde) y sin los
   # servicios de Google en segundo plano (sincronizar, actualizar componentes, avisos de red)
   "$NAV" --app="file:///opt/sri/arranque.html#$PUERTO" --user-data-dir="$PERFIL" --class="$CLASE" --name="$CLASE" \
@@ -59,7 +70,7 @@ if [ -n "$NAV" ]; then
     --disable-background-networking --disable-component-update --disable-sync --no-pings --disable-domain-reliability --disable-client-side-phishing-detection --no-default-browser-check --disable-breakpad --disable-features=Translate,OptimizationHints,MediaRouter,AutofillServerCommunication &
 else
   NAV="$(command -v firefox-esr || command -v firefox || true)"
-  [ -z "$NAV" ] && { aviso "Instala Chromium para ver la interfaz: sudo apt install chromium"; exit 1; }
+  [ -z "$NAV" ] && { aviso "Falta la ventana de SRI: sudo apt install gir1.2-webkit2-4.1 python3-gi"; exit 1; }
   mkdir -p "$PERFIL/ff"
   "$NAV" -no-remote -profile "$PERFIL/ff" --class sri "$URL" &
 fi

@@ -36,7 +36,7 @@ rm -rf "$PKG"
 mkdir -p "$PKG/DEBIAN" "$PKG/opt" "$PKG/usr/bin" "$PKG/lib/systemd/system" "$PKG/etc/sri" \
          "$PKG/usr/share/applications" "$PKG/usr/share/icons/hicolor/scalable/apps"
 cp -a "$DIST/sri" "$PKG/opt/sri"
-for x in sri-app sri-kiosco sri-estacion; do
+for x in sri-app sri-kiosco sri-estacion sri-ventana; do
   install -m 755 "$AQUI/$x" "$PKG/opt/sri/$x"
   ln -s "/opt/sri/$x" "$PKG/usr/bin/$x"
 done

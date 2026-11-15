@@ -3,8 +3,9 @@ Version: @VERSION@
 Architecture: @ARQ@
 Maintainer: emiliosea <emiliosea@proton.me>
 Installed-Size: @TAM@
-Depends: bluez, curl, adduser
-Recommends: chromium | firefox-esr | firefox, network-manager
+Depends: bluez, curl, adduser, python3, python3-gi, gir1.2-gtk-3.0, gir1.2-webkit2-4.1
+Recommends: network-manager, libnotify-bin
+Suggests: chromium
 Section: misc
 Priority: optional
 Homepage: https://github.com/emiliosea/sri
