@@ -80,6 +80,7 @@ class MeshCoreSource:
         self._cache = {"self": None, "contacts": [], "device": {}, "custom": {}}
         self._pos_rx = None         # cuándo llegó la última posición GPS válida
         self._impact = None         # estado del detector de caídas (firmware v1.18.0-rabanito)
+        self._pos_red = {}          # nombre -> última posición recibida por el canal "SRI" (firmware sri3)
         self.on_impact = None       # función del servidor que se llama con cada evento nuevo
         self.acc_hist = collections.deque(maxlen=HIST_SECS // IMPACT_SECS)  # [t, actual, mín, máx]
         self.moves = collections.deque(maxlen=300)   # movimientos evaluados al quedar en reposo
@@ -312,6 +313,15 @@ class MeshCoreSource:
         """Mensajes de canal: si es una alerta SRI (de un nodo de campo), se avisa al servidor."""
         import sri_alertas
         p = ev.payload or {}
+        pos = sri_alertas.leer_pos(p.get("text", ""))
+        if pos:
+            pos["saltos"], pos["recibido"] = p.get("path_len"), int(time.time())
+            with self._lock:
+                prev = self._pos_red.get(pos["nombre"])
+                if prev is None or pos["epoch"] >= prev["epoch"]:
+                    self._pos_red[pos["nombre"]] = pos
+            print(f"Posición por LoRa de {pos['nombre']}: {pos['lat']:.6f}, {pos['lon']:.6f}", flush=True)
+            return
         a = sri_alertas.leer(p.get("text", ""))
         if a and self.on_alerta_red:
             a["saltos"] = p.get("path_len")
@@ -477,6 +487,7 @@ class MeshCoreSource:
         contacts = await self._cmd(c.get_contacts())
         if tel is None and stats is None:
             return False
+        await self._bajar_cola()
         await self._cmd(c.send_appstart())  # refresca self_info (nombre, coordenadas del anuncio)
         me = dict(self.mc.self_info or {})
         lat = lon = alt = None
@@ -506,6 +517,20 @@ class MeshCoreSource:
             if contacts is not None:
                 self._cache["contacts"] = list(contacts.values())
         return True
+
+    async def _bajar_cola(self, maximo=20):
+        """Respaldo de start_auto_message_fetching: la librería solo baja mensajes cuando el nodo avisa que llegó
+        uno nuevo, así que lo que ya estaba en la cola (llegó mientras SRI no estaba conectado o durante una
+        reconexión) se quedaba ahí. En cada consulta se pide la cola hasta vaciarla; cada mensaje lo entrega la
+        suscripción (CHANNEL_MSG_RECV -> _mensaje_canal), y las alertas y posiciones repetidas se ignoran."""
+        from meshcore import EventType
+        for _ in range(maximo):
+            try:
+                r = await asyncio.wait_for(self.mc.commands.get_msg(), CMD_TIMEOUT)
+            except Exception:  # noqa: BLE001
+                return
+            if r is None or r.type in (EventType.NO_MORE_MSGS, EventType.ERROR):
+                return
 
     # ---------------- lo que pide la web ----------------
     def nodes(self):
@@ -550,7 +575,36 @@ class MeshCoreSource:
                 "hops_away": ct.get("out_path_len") if (ct.get("out_path_len") or -1) >= 0 else None,
                 "last_heard": ct.get("last_advert"),
             })
+        self._aplicar_pos_red(out, me.get("public_key", ""))
         return self.track(out)
+
+    def _aplicar_pos_red(self, out, mi_llave):
+        """Posiciones que llegaron por el canal "SRI": se pegan al contacto con ese nombre (o se agrega el nodo)."""
+        with self._lock:
+            posiciones = [dict(x) for x in self._pos_red.values()]
+        for pos in posiciones:
+            if not valid(pos["lat"], pos["lon"]):
+                continue
+            n = next((x for x in out if x["long_name"] == pos["nombre"] and not x["base"]), None)
+            if n is None:
+                if out and out[0]["long_name"] == pos["nombre"]:
+                    continue                                   # es la base misma
+                nm = pos["nombre"]
+                n = {"num": int.from_bytes(nm.encode()[:4].ljust(4, b"_"), "big"), "id": "lora", "key": "",
+                     "base": False, "long_name": nm, "short_name": nm[:4].upper(), "hw_model": "Nodo de campo",
+                     "lat": None, "lon": None, "altitude": None, "position_time": None, "position_rx": None,
+                     "battery": None, "voltage": None, "channel_util": None, "air_util_tx": None, "uptime": None,
+                     "snr": None, "hops_away": None, "last_heard": None}
+                out.append(n)
+            if (n.get("position_time") or 0) > pos["epoch"]:
+                continue                                       # el anuncio trae una posición más nueva
+            n.update(lat=pos["lat"], lon=pos["lon"], position_time=pos["epoch"], position_rx=pos["recibido"],
+                     pos_via="lora")
+            n["last_heard"] = max(n.get("last_heard") or 0, pos["recibido"])
+            if pos.get("mv"):
+                n["voltage"], n["battery"] = round(pos["mv"] / 1000, 2), battery_pct(pos["mv"])
+            if n.get("hops_away") is None and isinstance(pos.get("saltos"), int) and 0 <= pos["saltos"] < 64:
+                n["hops_away"] = pos["saltos"]
 
     def info(self):
         with self._lock:

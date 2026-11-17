@@ -1,10 +1,12 @@
 """Alertas de caída/golpe que llegan por LoRa desde nodos de campo (canal de grupo "SRI").
 
-El firmware v1.18.0-sri2 de cada nodo manda, cuando su detector engancha un evento, 3 veces (cada 20 s):
+El firmware v1.18.0-sri2 (o más nuevo) de cada nodo manda, cuando su detector engancha un evento, 3 veces (cada 20 s):
 
     SRI1 CAIDA dif 7.97g pico 8.79g @25.662300,-100.422100 t1794705000 #3 (1/3)
 
-y la base (el nodo conectado a la PC) lo recibe como mensaje de canal "NOMBRE: texto". Aquí se lee ese texto,
+Desde sri3 también manda su posición cada 4 minutos ("SRI1 POS ...", ver leer_pos).
+
+La base (el nodo conectado a la PC) lo recibe como mensaje de canal "NOMBRE: texto". Aquí se lee ese texto,
 se juntan las repeticiones en una sola alerta y se guarda cuál sigue activa (hasta que alguien la borra).
 """
 
@@ -17,6 +19,21 @@ CANAL = "SRI"
 PATRON = re.compile(
     r"^(?P<nombre>.+?): SRI1 (?P<tipo>CAIDA|GOLPE|[A-Z?]+) dif (?P<dif>-?\d+(?:\.\d+)?)g pico (?P<pico>-?\d+(?:\.\d+)?)g"
     r"(?: @(?P<lat>-?\d+(?:\.\d+)?),(?P<lon>-?\d+(?:\.\d+)?))? t(?P<epoch>\d+) #(?P<cuenta>\d+) \((?P<n>\d)/(?P<de>\d)\)")
+
+
+# Posición periódica (firmware sri3, cada 4 min):  "NOMBRE: SRI1 POS @25.662300,-100.422100 t1794705000 b3920"
+PATRON_POS = re.compile(
+    r"^(?P<nombre>.+?): SRI1 POS @(?P<lat>-?\d+(?:\.\d+)?),(?P<lon>-?\d+(?:\.\d+)?) t(?P<epoch>\d+)(?: b(?P<mv>\d+))?")
+
+
+def leer_pos(texto):
+    """Texto del mensaje de canal -> {nombre, lat, lon, epoch, mv}, o None si no es una posición SRI."""
+    m = PATRON_POS.match((texto or "").strip())
+    if not m:
+        return None
+    d = m.groupdict()
+    return {"nombre": d["nombre"].strip(), "lat": float(d["lat"]), "lon": float(d["lon"]),
+            "epoch": int(d["epoch"]), "mv": int(d["mv"]) if d["mv"] else None}
 
 
 def clave_canal(frase):

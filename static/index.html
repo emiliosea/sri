@@ -1300,6 +1300,7 @@ function renderDetail() {
     ['Último escuchado', ago(n.last_heard)],
     ['Posición', dp ? (dp.live ? 'Actual' : 'Última conocida (GPS sin señal)') : 'Sin GPS'],
     ['Posición tomada', dp ? `${ago(dp.position_time)} | ${fullTime(dp.position_time)}` : '--'],
+    ...(n.pos_via === 'lora' ? [['Posición llega', 'por LoRa, canal SRI (cada 4 min)']] : []),
     ['Batería', batteryText(n.battery)], ['Voltaje', fmt(n.voltage, 2, ' V')],
     ['Uso de canal', fmt(n.channel_util, 1, ' %')], ['Aire TX', fmt(n.air_util_tx, 2, ' %')],
     ['SNR', fmt(n.snr, 1, ' dB')], ['Saltos', n.hops_away ?? '--'],
@@ -1579,7 +1580,7 @@ function renderDetector(status) {
 }
 
 // ---------------------------------------------------------------------------
-// Alertas por LoRa: un nodo de campo con el firmware sri2 manda su caída/golpe por el canal "SRI" y la base la
+// Alertas por LoRa: un nodo de campo con el firmware sri2 o más nuevo manda su caída/golpe por el canal "SRI" y la base la
 // recibe. Aparece en la tarjeta del detector, suena la alarma y se traza la ruta a ese nodo.
 // ---------------------------------------------------------------------------
 let vistasRed = null;           // alertas ya avisadas (para sonar solo con las nuevas)

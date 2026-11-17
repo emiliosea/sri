@@ -1,7 +1,7 @@
 # Firmware del nodo (MeshCore modificado)
 
-RABANITO usa **MeshCore v1.18.0** (commit `81dbae5`) con cambios propios, versión **`v1.18.0-sri2`**
-(antes `v1.18.0-rabanito`; la sri2 agrega las **alertas por LoRa**).
+RABANITO usa **MeshCore v1.18.0** (commit `81dbae5`) con cambios propios, versión **`v1.18.0-sri3`**
+(antes `v1.18.0-rabanito`; la sri2 agrega las **alertas por LoRa** y la sri3 la **posición cada 4 minutos**).
 Los cambios están en [`firmware/rabanito-acelerometro.patch`](../firmware/rabanito-acelerometro.patch).
 
 ## Qué cambia respecto al MeshCore oficial
@@ -12,8 +12,8 @@ Los cambios están en [`firmware/rabanito-acelerometro.patch`](../firmware/raban
 | `variants/t1000-e/target.cpp` | Lectura del QMA6100P (±32 g), detector de caídas, calibración, nuevas custom vars, ejes en la telemetría (canal 2) |
 | `src/helpers/nrf52/SerialBLEInterface.cpp` | Opción `BLE_NO_PIN`: canal de datos Bluetooth sin PIN (la actualización DFU por Bluetooth sigue con PIN) |
 | `src/helpers/esp32/SerialBLEInterface.cpp` | La misma opción `BLE_NO_PIN` para placas ESP32 (FARO, Heltec V4) |
-| `variants/heltec_v4/platformio.ini` | Objetivo `heltec_v4_companion_radio_ble_sri` (versión `v1.18.0-sri2-ble`, con `BLE_NO_PIN`) |
-| `variants/t1000-e/platformio.ini` | Versión `v1.18.0-sri2` (USB) y `v1.18.0-sri2-ble` (Bluetooth, con `BLE_NO_PIN`) |
+| `variants/heltec_v4/platformio.ini` | Objetivo `heltec_v4_companion_radio_ble_sri` (versión `v1.18.0-sri3-ble`, con `BLE_NO_PIN`) |
+| `variants/t1000-e/platformio.ini` | Versión `v1.18.0-sri3` (USB) y `v1.18.0-sri3-ble` (Bluetooth, con `BLE_NO_PIN`) |
 | `examples/companion_radio/MyMesh.cpp/.h` | `alertaSRI()`: manda la caída/golpe por el canal de grupo "SRI" (ver abajo) |
 
 El algoritmo se explica en [detector-de-caidas.md](detector-de-caidas.md).
@@ -22,9 +22,9 @@ El algoritmo se explica en [detector-de-caidas.md](detector-de-caidas.md).
 
 | Archivo | Uso |
 |---|---|
-| `firmware/RABANITO-meshcore-v1.18.0-sri2-ble.uf2` | **Bluetooth** (el de RABANITO y los nodos de campo). El USB solo carga. |
-| `firmware/RABANITO-meshcore-v1.18.0-sri2.uf2` | **USB** (datos por cable, sin Bluetooth) |
-| `firmware/FARO-heltec-v4-meshcore-v1.18.0-sri2-ble.bin` | **FARO** (Heltec V4, ESP32-S3): imagen completa por Bluetooth, se carga en la dirección 0x0 |
+| `firmware/RABANITO-meshcore-v1.18.0-sri3-ble.uf2` | **Bluetooth** (el de RABANITO y los nodos de campo). El USB solo carga. |
+| `firmware/RABANITO-meshcore-v1.18.0-sri3.uf2` | **USB** (datos por cable, sin Bluetooth) |
+| `firmware/FARO-heltec-v4-meshcore-v1.18.0-sri3-ble.bin` | **FARO** (Heltec V4, ESP32-S3): imagen completa por Bluetooth, se carga en la dirección 0x0 |
 
 ## Flashear
 
@@ -61,7 +61,7 @@ cd .. && uv venv -q .venv-pio && uv pip install -q -p .venv-pio platformio
 cd MeshCore
 ../.venv-pio/bin/pio run -e t1000e_companion_radio_ble
 ../.venv-pio/bin/python bin/uf2conv/uf2conv.py -f 0xADA52840 -c \
-    .pio/build/t1000e_companion_radio_ble/firmware.hex -o ../RABANITO-meshcore-v1.18.0-sri2-ble.uf2
+    .pio/build/t1000e_companion_radio_ble/firmware.hex -o ../RABANITO-meshcore-v1.18.0-sri3-ble.uf2
 ```
 
 Notas:
@@ -86,6 +86,21 @@ nodo. Si el nodo no tiene el canal "SRI", no manda nada (la alarma sigue en el n
 nodo" con la **misma frase** en todos (la llave del canal sale de la frase). Valor `alerta` en las custom vars:
 `tipo|pico*100|dif*100|epoch|cuenta` mientras falta mandarla.
 
+## Posición cada 4 minutos (v1.18.0-sri3)
+
+Además de las alertas, cada **4 minutos** el nodo manda su posición GPS por el mismo canal privado **"SRI"** (no por
+el anuncio, que es público), para que la base vea por dónde va el senderista:
+
+```
+SRI1 POS @25.662300,-100.422100 t1794705000 b3920
+```
+
+(posición, hora del nodo, batería en mV). La primera sale 1 minuto después de encender. Solo se manda si hay canal
+"SRI", el GPS está encendido y ya tiene posición (sin señal GPS no manda nada); mientras sale una alerta se espera,
+porque la alerta ya lleva la posición. Los nodos sin GPS (como FARO) nunca la mandan. El intervalo se cambia al
+compilar con `-D SRI_POS_INTERVALO_MS=...`. En SRI la posición se pone en ese nodo del mapa (con su batería y
+"Posición llega: por LoRa") y se guarda como su última posición conocida.
+
 ## Configuración del nodo
 
 | Ajuste | Valor |
@@ -99,7 +114,7 @@ nodo" con la **misma frase** en todos (la llave del canal sale de la frase). Val
 ## FARO: Heltec WiFi LoRa 32 V4 (ESP32-S3)
 
 Segundo nodo del proyecto y el primero con ESP32, la placa elegida para el dispositivo SRI. Llegó con el firmware
-de prueba de fábrica ("IO Output test") y el 17 nov 2026 se le cargó MeshCore `v1.18.0-sri2-ble`.
+de prueba de fábrica ("IO Output test") y el 17 nov 2026 se le cargó MeshCore `v1.18.0-sri2-ble` (después `sri3-ble`).
 
 | Ajuste | Valor |
 |---|---|
@@ -117,7 +132,7 @@ cd firmware/MeshCore
 ../.venv-pio/bin/pio run -e heltec_v4_companion_radio_ble_sri -t upload --upload-port /dev/ttyACM0
 ```
 
-o con la imagen ya hecha: `esptool.py --chip esp32s3 write_flash 0x0 firmware/FARO-heltec-v4-meshcore-v1.18.0-sri2-ble.bin`.
+o con la imagen ya hecha: `esptool.py --chip esp32s3 write_flash 0x0 firmware/FARO-heltec-v4-meshcore-v1.18.0-sri3-ble.bin`.
 La primera compilación para ESP32 descarga las herramientas (~37 min). Después se configura nombre y radio desde
 SRI o con la librería `meshcore` (`set_name`, `set_radio`).
 

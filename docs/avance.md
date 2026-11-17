@@ -21,6 +21,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 14. Alertas por LoRa | 15 nov 2026 | El nodo de campo manda su caída por radio a la base (firmware sri2) |
 | 15. Ventana nativa | 15 nov 2026 | SRI sin navegador: ventana propia GTK + WebKit |
 | 16. Segundo nodo: FARO | 17 nov 2026 | Heltec V4 (ESP32-S3) con MeshCore sri2; canal SRI y primera alerta por LoRa de FARO a RABANITO |
+| 17. Posición cada 4 min | 17 nov 2026 | Firmware sri3: RABANITO manda su GPS por el canal SRI; primera prueba al aire libre |
 
 ---
 
@@ -208,6 +209,35 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
   recibió directo (0 saltos) y SRI la mostró y la guardó en Eventos (vía LoRa). Después se borró la alarma.
 - Pendiente: probar en sentido contrario (una caída real de RABANITO que llegue a FARO conectado a la PC), medir
   alcance en exteriores y cargar RABANITO (estaba al 3 %).
+## Etapa 17 - Posición cada 4 minutos por LoRa (17 nov)
+
+- Firmware **`v1.18.0-sri3`** en RABANITO y FARO: cada 4 min el nodo manda `SRI1 POS @lat,lon t<hora> b<mV>` por el
+  canal privado "SRI" (solo con GPS encendido y con posición). SRI la pone en el nodo del mapa con su batería.
+- Al reiniciar, RABANITO pierde la señal GPS y bajo techo no la recupera: sin posición no manda nada (correcto).
+
+**Prueba al aire libre (19:02-20:02).** FARO conectado a la PC dentro de la casa; RABANITO afuera. Bitácora y
+contadores de radio de los dos nodos:
+
+| Dato | RABANITO | FARO |
+|---|---|---|
+| Paquetes enviados / recibidos | 13 enviados (`flood_tx`) | **1 recibido** (`recv`), el de las 20:01:45 al regresar |
+| Ruido de fondo (`noise_floor`) | -117 / -114 dBm | **-98 dBm** (~17 dB más ruido) |
+| Señal del paquete recibido | | RSSI -56 dBm, SNR 12.75 dB (de cerca) |
+| Desconexiones | | 1 de SRI con FARO ("El nodo dejó de responder; reconectando..."), hora no registrada |
+
+Hallazgos para resolver:
+1. **Alcance:** mientras RABANITO estuvo afuera (con edificios de por medio) FARO no recibió ninguna de sus posiciones. **Causa principal: FARO no tenía conectada su antena LoRa.** Repetir la prueba con la antena puesta. El ruido de fondo de FARO
+   es ~17 dB peor que el de RABANITO, lo que reduce mucho su sensibilidad. Sospecha: ruido de la PC/USB o del propio
+   ESP32 junto a la antena. Probar: FARO lejos de la laptop (extensión USB o con batería, por Bluetooth), revisar que
+   la antena sea de 915 MHz y esté bien apretada, comparar `noise_floor` en cada caso y medir distancia máxima.
+2. **Mensaje atorado:** el único paquete recibido (20:01:45) se quedó en la cola de FARO sin que SRI lo bajara.
+   Causa: la librería `meshcore` solo baja mensajes cuando el nodo avisa que llegó uno nuevo
+   (`start_auto_message_fetching`); lo que ya estaba en la cola (llegó sin SRI conectado o durante una reconexión)
+   se quedaba ahí. **Corregido en SRI:** en cada consulta (cada 10 s) se pide la cola al nodo hasta vaciarla
+   (`_bajar_cola`); las alertas y posiciones repetidas se ignoran. Probado con mensajes simulados; falta probarlo
+   con los nodos.
+3. La bitácora de SRI no tenía hora: para pruebas, correr el servidor con hora en cada línea.
+
 ---
 
 ## Resultados de las pruebas (hasta el 10 nov)

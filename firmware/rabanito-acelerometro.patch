@@ -1,13 +1,14 @@
 diff --git a/examples/companion_radio/MyMesh.cpp b/examples/companion_radio/MyMesh.cpp
-index f32ea67..61c629e 100644
+index f32ea67..06182f7 100644
 --- a/examples/companion_radio/MyMesh.cpp
 +++ b/examples/companion_radio/MyMesh.cpp
-@@ -2431,6 +2431,72 @@ void MyMesh::loop() {
+@@ -2431,6 +2431,122 @@ void MyMesh::loop() {
      saveContacts();
      dirty_contacts_expiry = 0;
    }
 +
 +  alertaSRI();
++  posicionSRI();
 +}
 +
 +// ---------------------------------------------------------------------------------------------
@@ -72,18 +73,68 @@ index f32ea67..61c629e 100644
 +    MESH_DEBUG_PRINTLN("SRI: alerta enviada (%u/3): %s", (unsigned)enviados, txt);
 +    proxima = futureMillis(enviados < 3 ? 20000 : 1000);
 +  }
++}
++
++// ---------------------------------------------------------------------------------------------
++// SRI: cada 4 minutos el nodo manda su posición GPS por el canal privado "SRI" (no en el anuncio
++// público), para que la base vea dónde va el senderista aunque no haya alerta:
++//   SRI1 POS @25.662300,-100.422100 t1794705000 b3920
++// (t = hora del nodo, b = batería en mV). Solo si hay canal "SRI", GPS encendido y una posición.
++// Mientras se manda una alerta no se manda posición (la alerta ya lleva la posición).
++// ---------------------------------------------------------------------------------------------
++#ifndef SRI_POS_INTERVALO_MS
++#define SRI_POS_INTERVALO_MS (4UL * 60UL * 1000UL)
++#endif
++void MyMesh::posicionSRI() {
++  static unsigned long proxima = 0;
++  if (proxima == 0) { proxima = futureMillis(60000); return; }   // la primera, 1 min después de encender
++  if (!millisHasNowPassed(proxima)) return;
++
++  const char* a = sensors.getSettingByKey("alerta");
++  if (a != NULL && a[0] != 0 && strcmp(a, "-") != 0 && strcmp(a, "0") != 0) {
++    proxima = futureMillis(30000);                    // hay una alerta saliendo: volver a intentar luego
++    return;
++  }
++  proxima = futureMillis(SRI_POS_INTERVALO_MS);
++
++  const char* g = sensors.getSettingByKey("gps");
++  if (g != NULL && strcmp(g, "1") != 0) return;       // GPS apagado: la posición sería vieja
++  if (sensors.node_lat == 0 && sensors.node_lon == 0) return;
++
++  ChannelDetails ch;
++  int idx = -1;
++#ifdef MAX_GROUP_CHANNELS
++  for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
++    if (getChannel(i, ch) && strcmp(ch.name, "SRI") == 0) { idx = i; break; }
++  }
++#endif
++  if (idx < 0) return;
++
++  long la = lround(sensors.node_lat * 1000000.0), lo = lround(sensors.node_lon * 1000000.0);
++  char txt[100];
++  snprintf(txt, sizeof(txt), "SRI1 POS @%s%ld.%06ld,%s%ld.%06ld t%lu b%u",
++           la < 0 ? "-" : "", labs(la) / 1000000, labs(la) % 1000000,
++           lo < 0 ? "-" : "", labs(lo) / 1000000, labs(lo) % 1000000,
++           (unsigned long)getRTCClock()->getCurrentTime(), (unsigned)board.getBattMilliVolts());
++  uint32_t ts = getRTCClock()->getCurrentTimeUnique();
++  if (sendGroupMessage(ts, ch.channel, _prefs.node_name, txt, strlen(txt))) {
++    MESH_DEBUG_PRINTLN("SRI: posición enviada: %s", txt);
++  } else {
++    proxima = futureMillis(30000);
++  }
  }
  
  bool MyMesh::advert() {
 diff --git a/examples/companion_radio/MyMesh.h b/examples/companion_radio/MyMesh.h
-index 944790d..e1c779d 100644
+index 944790d..c8b6281 100644
 --- a/examples/companion_radio/MyMesh.h
 +++ b/examples/companion_radio/MyMesh.h
-@@ -233,6 +233,7 @@ private:
+@@ -233,6 +233,8 @@ private:
    void checkCLIRescueCmd();
    bool handleCommand(const char* text, uint32_t sender_timestamp, char* reply);
    void checkSerialInterface();
 +  void alertaSRI();     // SRI: manda por LoRa (canal "SRI") la alerta de caída/golpe del detector
++  void posicionSRI();   // SRI: manda la posición GPS cada 4 min por el canal "SRI"
    bool isValidClientRepeatFreq(uint32_t f) const;
  
    // helpers, short-cuts
@@ -177,7 +228,7 @@ index 6ed16bc..78253fc 100644
    bleuart.setRxCallback(onBleUartRX);
  
 diff --git a/variants/heltec_v4/platformio.ini b/variants/heltec_v4/platformio.ini
-index 76e8e71..5410269 100644
+index 76e8e71..0b7fb10 100644
 --- a/variants/heltec_v4/platformio.ini
 +++ b/variants/heltec_v4/platformio.ini
 @@ -225,6 +225,14 @@ lib_deps =
@@ -190,20 +241,20 @@ index 76e8e71..5410269 100644
 +build_flags =
 +  ${env:heltec_v4_companion_radio_ble.build_flags}
 +  -D BLE_NO_PIN
-+  -D FIRMWARE_VERSION='"v1.18.0-sri2-ble"'
++  -D FIRMWARE_VERSION='"v1.18.0-sri3-ble"'
 +
  [env:heltec_v4_companion_radio_wifi]
  extends = heltec_v4_oled
  build_flags =
 diff --git a/variants/t1000-e/platformio.ini b/variants/t1000-e/platformio.ini
-index 8456dc9..8fe974b 100644
+index 8456dc9..3a162c2 100644
 --- a/variants/t1000-e/platformio.ini
 +++ b/variants/t1000-e/platformio.ini
 @@ -73,6 +73,7 @@ extends = t1000-e
  board_build.ldscript = boards/nrf52840_s140_v7_extrafs.ld
  board_upload.maximum_size = 708608
  build_flags = ${t1000-e.build_flags}
-+  -D FIRMWARE_VERSION='"v1.18.0-sri2"'   ; MeshCore + detección de caídas (acelerómetro)
++  -D FIRMWARE_VERSION='"v1.18.0-sri3"'   ; MeshCore + detección de caídas (acelerómetro)
    -I examples/companion_radio/ui-orig
    -D MAX_CONTACTS=350
    -D MAX_GROUP_CHANNELS=40
@@ -211,7 +262,7 @@ index 8456dc9..8fe974b 100644
  board_build.ldscript = boards/nrf52840_s140_v7_extrafs.ld
  board_upload.maximum_size = 708608
  build_flags = ${t1000-e.build_flags}
-+  -D FIRMWARE_VERSION='"v1.18.0-sri2-ble"'   ; MeshCore + detección de caídas, por Bluetooth
++  -D FIRMWARE_VERSION='"v1.18.0-sri3-ble"'   ; MeshCore + detección de caídas, por Bluetooth
 +  -D BLE_NO_PIN                                  ; datos por Bluetooth sin PIN (Linux/BlueZ)
    -I examples/companion_radio/ui-orig
    -D MAX_CONTACTS=350
