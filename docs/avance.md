@@ -276,6 +276,10 @@ llegó con RSSI -12 dBm). Para comparar alcance usar el SNR de los paquetes y la
   GPS para corregirlo. SRI ya no usa la hora del nodo: toma la hora de llegada para reportes, gráfica y alertas
   (las repeticiones de una alerta se siguen reconociendo).
 - La tarjeta del detector ya no pide flashear la base: dice que las caídas llegan de los nodos de campo.
+- **FARO por USB:** tenía el firmware Bluetooth (con él el cable solo da corriente). Como base fija junto a la PC
+  ahora usa la variante USB (`heltec_v4_companion_radio_usb_sri`): más estable y sin depender del Bluetooth.
+  SRI, en modo USB automático, prueba cada puerto hasta encontrar el que responde como MeshCore (RABANITO cargando
+  por USB no habla por el cable). Probado: SRI encontró a FARO en `/dev/ttyACM1` y recibió el reporte de RABANITO.
 
 ---
 

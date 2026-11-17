@@ -69,7 +69,7 @@ firmware/
   rabanito-acelerometro.patch               Cambios sobre MeshCore v1.18.0
   RABANITO-meshcore-v1.18.0-sri5-ble.uf2  Firmware Bluetooth listo para flashear (T1000-E)
   RABANITO-meshcore-v1.18.0-sri5.uf2      Firmware USB listo para flashear (T1000-E)
-  FARO-heltec-v4-meshcore-v1.18.0-sri5-ble.bin  Imagen completa para Heltec V4 (en 0x0)
+  FARO-heltec-v4-meshcore-v1.18.0-sri5-usb.bin  Imagen completa de FARO, la base por USB (Heltec V4, en 0x0)
 docs/                     Documentación; docs/img/ con diagramas (generar_diagramas.py) y capturas
 herramientas/             Scripts auxiliares de etapas anteriores
 requirements.txt          Dependencias (requirements.lock: versiones exactas probadas)

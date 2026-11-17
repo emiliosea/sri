@@ -1709,7 +1709,7 @@ def api_connect():
         if not target or not re.fullmatch(r"([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}|[\w\-]{1,40}", target):
             return jsonify({"ok": False, "error": "Dirección Bluetooth no válida"}), 400
     elif mode == "serial":
-        if target and not re.fullmatch(r"/dev/tty[\w]+", target):
+        if target and not re.fullmatch(r"/dev/tty[\w]+|/dev/serial/by-id/[\w.:\-]+", target):
             return jsonify({"ok": False, "error": "Puerto no válido"}), 400
     elif mode == "demo":
         target = None

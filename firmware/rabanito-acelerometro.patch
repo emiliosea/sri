@@ -260,10 +260,10 @@ index 6ed16bc..78253fc 100644
    bleuart.setRxCallback(onBleUartRX);
  
 diff --git a/variants/heltec_v4/platformio.ini b/variants/heltec_v4/platformio.ini
-index 76e8e71..0ade182 100644
+index 76e8e71..fa1befd 100644
 --- a/variants/heltec_v4/platformio.ini
 +++ b/variants/heltec_v4/platformio.ini
-@@ -225,6 +225,14 @@ lib_deps =
+@@ -225,6 +225,22 @@ lib_deps =
    ${heltec_v4_oled.lib_deps}
    densaugeo/base64 @ ~1.4.0
  
@@ -274,6 +274,14 @@ index 76e8e71..0ade182 100644
 +  ${env:heltec_v4_companion_radio_ble.build_flags}
 +  -D BLE_NO_PIN
 +  -D FIRMWARE_VERSION='"v1.18.0-sri5-ble"'
++
++[env:heltec_v4_companion_radio_usb_sri]
++; SRI: FARO como base fija junto a la PC: companion por USB (cable), con el código de alertas SRI
++extends = env:heltec_v4_companion_radio_usb
++build_flags =
++  ${env:heltec_v4_companion_radio_usb.build_flags}
++  -D OFFLINE_QUEUE_SIZE=256
++  -D FIRMWARE_VERSION='"v1.18.0-sri5"'
 +
  [env:heltec_v4_companion_radio_wifi]
  extends = heltec_v4_oled

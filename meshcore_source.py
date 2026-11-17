@@ -80,6 +80,7 @@ class MeshCoreSource:
         self._cache = {"self": None, "contacts": [], "device": {}, "custom": {}}
         self._pos_rx = None         # cuándo llegó la última posición GPS válida
         self._impact = None         # estado del detector de caídas (firmware v1.18.0-rabanito)
+        self._puerto_ok = None      # último puerto USB donde respondió un nodo MeshCore (autodetección)
         self._pos_red = {}          # nombre -> última posición recibida por el canal "SRI" (firmware sri3)
         self._acel_red = {}         # nombre -> deque [[hora, mín g, máx g], ...] (resumen sri4 cada 4 min)
         self.on_impact = None       # función del servidor que se llama con cada evento nuevo
@@ -144,13 +145,35 @@ class MeshCoreSource:
             await self._ble_cleanup()
             mc = await MeshCore.create_ble(self.ble, default_timeout=CMD_TIMEOUT)
         else:
-            port = self.dev_path
-            if not port:
+            if self.dev_path:
+                mc = await MeshCore.create_serial(self.dev_path, 115200, default_timeout=CMD_TIMEOUT)
+            else:
+                # Autodetectar: puede haber varios equipos por USB (p. ej. FARO, la base, y RABANITO cargando, cuyo
+                # firmware Bluetooth no habla por el cable). Se prueba cada puerto; se queda el primero que responde
+                # como MeshCore, empezando por el último que funcionó.
                 ports = sorted(glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*"))
                 if not ports:
                     raise FileNotFoundError("ningún puerto USB")
-                port = ports[0]
-            mc = await MeshCore.create_serial(port, 115200, default_timeout=CMD_TIMEOUT)
+                if self._puerto_ok in ports:
+                    ports.remove(self._puerto_ok)
+                    ports.insert(0, self._puerto_ok)
+                mc = None
+                for port in ports:
+                    try:
+                        mc = await asyncio.wait_for(
+                            MeshCore.create_serial(port, 115200, default_timeout=CMD_TIMEOUT), 8)
+                    except Exception:  # noqa: BLE001
+                        mc = None
+                    if mc is not None and mc.is_connected and mc.self_info:
+                        self._puerto_ok = port
+                        print(f"Nodo MeshCore encontrado en {port}", flush=True)
+                        break
+                    if mc is not None:
+                        try:
+                            await mc.disconnect()
+                        except Exception:  # noqa: BLE001
+                            pass
+                    mc = None
         if mc is None or not mc.is_connected:
             raise ConnectionError("el nodo no respondió al protocolo MeshCore")
         return mc
@@ -676,7 +699,7 @@ class MeshCoreSource:
                 ["Potencia TX", texto_potencia(dev.get("model"), me.get("tx_power"), me.get("max_tx_power"))],
             ]],
             ["Conexión", [
-                ["Puerto", f"Bluetooth {self.ble}" if self.ble else (self.dev_path or "USB (autodetectado)")],
+                ["Puerto", f"Bluetooth {self.ble}" if self.ble else (self.dev_path or (f"USB {self._puerto_ok} (autodetectado)" if self._puerto_ok else "USB (autodetectado)"))],
                 ["Contactos", len(self._cache["contacts"])],
             ]],
         ]}
