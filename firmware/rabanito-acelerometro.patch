@@ -87,6 +87,54 @@ index 944790d..e1c779d 100644
    bool isValidClientRepeatFreq(uint32_t f) const;
  
    // helpers, short-cuts
+diff --git a/src/helpers/esp32/SerialBLEInterface.cpp b/src/helpers/esp32/SerialBLEInterface.cpp
+index 6371cf3..82ad1ec 100644
+--- a/src/helpers/esp32/SerialBLEInterface.cpp
++++ b/src/helpers/esp32/SerialBLEInterface.cpp
+@@ -30,7 +30,13 @@ void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code
+ 
+   BLESecurity  sec;
+   sec.setStaticPIN(pin_code);
++#ifdef BLE_NO_PIN
++  // SRI: canal de datos sin PIN, porque BlueZ en Linux no logra el emparejamiento con PIN.
++  sec.setAuthenticationMode(ESP_LE_AUTH_NO_BOND);
++  sec.setCapability(ESP_IO_CAP_NONE);
++#else
+   sec.setAuthenticationMode(ESP_LE_AUTH_REQ_SC_MITM_BOND);
++#endif
+ 
+   //BLEDevice::setPower(ESP_PWR_LVL_N8);
+ 
+@@ -43,11 +49,19 @@ void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code
+ 
+   // Create a BLE Characteristic
+   pTxCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_TX, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
++#ifdef BLE_NO_PIN
++  pTxCharacteristic->setAccessPermissions(ESP_GATT_PERM_READ);
++#else
+   pTxCharacteristic->setAccessPermissions(ESP_GATT_PERM_READ_ENC_MITM);
++#endif
+   pTxCharacteristic->addDescriptor(new BLE2902());
+ 
+   BLECharacteristic * pRxCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_RX, BLECharacteristic::PROPERTY_WRITE);
++#ifdef BLE_NO_PIN
++  pRxCharacteristic->setAccessPermissions(ESP_GATT_PERM_WRITE);
++#else
+   pRxCharacteristic->setAccessPermissions(ESP_GATT_PERM_WRITE_ENC_MITM);
++#endif
+   pRxCharacteristic->setCallbacks(this);
+ 
+   pServer->getAdvertising()->addServiceUUID(SERVICE_UUID);
+@@ -95,6 +109,9 @@ void SerialBLEInterface::onConnect(BLEServer* pServer) {
+ void SerialBLEInterface::onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) {
+   BLE_DEBUG_PRINTLN("onConnect(), conn_id=%d, mtu=%d", param->connect.conn_id, pServer->getPeerMTU(param->connect.conn_id));
+   last_conn_id = param->connect.conn_id;
++#ifdef BLE_NO_PIN
++  deviceConnected = true;   // sin PIN no hay paso de autenticación: la conexión vale desde ya
++#endif
+ }
+ 
+ void SerialBLEInterface::onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) {
 diff --git a/src/helpers/nrf52/SerialBLEInterface.cpp b/src/helpers/nrf52/SerialBLEInterface.cpp
 index 6ed16bc..78253fc 100644
 --- a/src/helpers/nrf52/SerialBLEInterface.cpp
@@ -128,6 +176,25 @@ index 6ed16bc..78253fc 100644
    bleuart.begin();
    bleuart.setRxCallback(onBleUartRX);
  
+diff --git a/variants/heltec_v4/platformio.ini b/variants/heltec_v4/platformio.ini
+index 76e8e71..5410269 100644
+--- a/variants/heltec_v4/platformio.ini
++++ b/variants/heltec_v4/platformio.ini
+@@ -225,6 +225,14 @@ lib_deps =
+   ${heltec_v4_oled.lib_deps}
+   densaugeo/base64 @ ~1.4.0
+ 
++[env:heltec_v4_companion_radio_ble_sri]
++; SRI: companion por Bluetooth sin PIN en el canal de datos (Linux/BlueZ), con el código de alertas SRI
++extends = env:heltec_v4_companion_radio_ble
++build_flags =
++  ${env:heltec_v4_companion_radio_ble.build_flags}
++  -D BLE_NO_PIN
++  -D FIRMWARE_VERSION='"v1.18.0-sri2-ble"'
++
+ [env:heltec_v4_companion_radio_wifi]
+ extends = heltec_v4_oled
+ build_flags =
 diff --git a/variants/t1000-e/platformio.ini b/variants/t1000-e/platformio.ini
 index 8456dc9..8fe974b 100644
 --- a/variants/t1000-e/platformio.ini

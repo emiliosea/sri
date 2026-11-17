@@ -20,6 +20,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 13. Modos y Red LoRa | 15 nov 2026 | Tiempo real / Demo desde la interfaz; agregar y quitar nodos de la red LoRa |
 | 14. Alertas por LoRa | 15 nov 2026 | El nodo de campo manda su caída por radio a la base (firmware sri2) |
 | 15. Ventana nativa | 15 nov 2026 | SRI sin navegador: ventana propia GTK + WebKit |
+| 16. Segundo nodo: FARO | 17 nov 2026 | Heltec V4 (ESP32-S3) con MeshCore sri2; canal SRI y primera alerta por LoRa de FARO a RABANITO |
 
 ---
 
@@ -190,6 +191,23 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
   negro, porque WebKit no tiene `ctx.filter`), las alertas por LoRa y la hoja Red LoRa.
 - La ventana de pantalla completa de la estación (`sri-kiosco`) usa la misma ventana con `--kiosco`.
 
+
+## Etapa 16 - Segundo nodo: FARO, Heltec V4 (17 nov)
+
+- Primer nodo con **ESP32** (ESP32-S3 + SX1262), la plataforma elegida para el dispositivo SRI. Venía con el firmware
+  de prueba de fábrica.
+- Se compiló MeshCore `v1.18.0-sri2-ble` para el Heltec V4 y se cargó por USB. La opción **sin PIN** del Bluetooth se
+  llevó también a ESP32 (`BLE_NO_PIN`), porque Linux no empareja con PIN.
+- Configurado como **FARO**, nodo de campo por Bluetooth, en la misma radio que RABANITO (915 MHz, BW 62.5, SF 8).
+- Probado con SRI por Bluetooth: conexión, ping (39 ms), batería, información del dispositivo y anuncio por LoRa.
+- No tiene acelerómetro ni GPS: el detector aparece como no disponible. Su "temperatura" es la del chip.
+- **Primer enlace LoRa entre los dos nodos:** RABANITO recibió el anuncio de FARO y lo agregó solo a sus contactos.
+- Canal privado **"SRI"** configurado en ambos (lugar 1) con la misma frase; la llave es igual en los dos. La frase
+  se guarda fuera del repositorio.
+- **Primera alerta de nodo a nodo:** FARO mandó una alerta de prueba (`SRI1 GOLPE`) por el canal; RABANITO la
+  recibió directo (0 saltos) y SRI la mostró y la guardó en Eventos (vía LoRa). Después se borró la alarma.
+- Pendiente: probar en sentido contrario (una caída real de RABANITO que llegue a FARO conectado a la PC), medir
+  alcance en exteriores y cargar RABANITO (estaba al 3 %).
 ---
 
 ## Resultados de las pruebas (hasta el 10 nov)
@@ -212,7 +230,7 @@ Pruebas manuales (dejar caer y golpear el nodo sobre la mesa y superficies bland
   probar límite de 0.5-0.6 g y exigir que termine poco antes del pico).
 - Guardar la dif. mínima y la calibración **en la memoria del nodo** (hoy se pierden al reiniciarlo; la interfaz
   reenvía la calibración al conectar).
-- Probar las alertas por LoRa con un segundo nodo (alcance y tiempo de la caída a la base).
+- Probar las alertas por LoRa en exteriores con el segundo nodo (alcance y tiempo de la caída a la base).
 - Probar el GPS en exteriores y medir el tiempo hasta la primera posición.
 - Volver a usar el **PIN de Bluetooth** si se encuentra cómo emparejar con PIN desde Linux (BlueZ).
 - Pruebas con portador humano y definición de la dif. mínima definitiva.

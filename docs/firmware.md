@@ -11,6 +11,8 @@ Los cambios están en [`firmware/rabanito-acelerometro.patch`](../firmware/raban
 | `variants/t1000-e/target.h` | Estado del acelerómetro, banco de 5 s, alarma y calibración |
 | `variants/t1000-e/target.cpp` | Lectura del QMA6100P (±32 g), detector de caídas, calibración, nuevas custom vars, ejes en la telemetría (canal 2) |
 | `src/helpers/nrf52/SerialBLEInterface.cpp` | Opción `BLE_NO_PIN`: canal de datos Bluetooth sin PIN (la actualización DFU por Bluetooth sigue con PIN) |
+| `src/helpers/esp32/SerialBLEInterface.cpp` | La misma opción `BLE_NO_PIN` para placas ESP32 (FARO, Heltec V4) |
+| `variants/heltec_v4/platformio.ini` | Objetivo `heltec_v4_companion_radio_ble_sri` (versión `v1.18.0-sri2-ble`, con `BLE_NO_PIN`) |
 | `variants/t1000-e/platformio.ini` | Versión `v1.18.0-sri2` (USB) y `v1.18.0-sri2-ble` (Bluetooth, con `BLE_NO_PIN`) |
 | `examples/companion_radio/MyMesh.cpp/.h` | `alertaSRI()`: manda la caída/golpe por el canal de grupo "SRI" (ver abajo) |
 
@@ -22,6 +24,7 @@ El algoritmo se explica en [detector-de-caidas.md](detector-de-caidas.md).
 |---|---|
 | `firmware/RABANITO-meshcore-v1.18.0-sri2-ble.uf2` | **Bluetooth** (el de RABANITO y los nodos de campo). El USB solo carga. |
 | `firmware/RABANITO-meshcore-v1.18.0-sri2.uf2` | **USB** (datos por cable, sin Bluetooth) |
+| `firmware/FARO-heltec-v4-meshcore-v1.18.0-sri2-ble.bin` | **FARO** (Heltec V4, ESP32-S3): imagen completa por Bluetooth, se carga en la dirección 0x0 |
 
 ## Flashear
 
@@ -92,3 +95,29 @@ nodo" con la **misma frase** en todos (la llave del canal sale de la frase). Val
 | GPS | encendido (`gps = 1`) |
 | Compartir ubicación en anuncios | sí (`adv_loc_policy = 1`) |
 | Hora | se sincroniza con la PC en cada conexión |
+
+## FARO: Heltec WiFi LoRa 32 V4 (ESP32-S3)
+
+Segundo nodo del proyecto y el primero con ESP32, la placa elegida para el dispositivo SRI. Llegó con el firmware
+de prueba de fábrica ("IO Output test") y el 17 nov 2026 se le cargó MeshCore `v1.18.0-sri2-ble`.
+
+| Ajuste | Valor |
+|---|---|
+| Nombre | FARO (en Bluetooth: `MeshCore-FARO`, dirección 8C:FD:49:B6:90:D1) |
+| Papel | Nodo de campo por Bluetooth (companion) |
+| Modelo que reporta | Heltec V4.3 OLED |
+| Radio | 915.0 MHz, BW 62.5 kHz, SF 8, CR 4/5 (igual que RABANITO) |
+| Potencia | 10 (valor del SX1262; con el amplificador de la placa sale ~22 dBm según MeshCore) |
+| Sensores | No tiene acelerómetro ni GPS: no detecta caídas por sí solo. La "temperatura" que reporta es la del chip (~47 °C), no la del ambiente |
+
+**Flashear** (por USB, sin botones):
+
+```bash
+cd firmware/MeshCore
+../.venv-pio/bin/pio run -e heltec_v4_companion_radio_ble_sri -t upload --upload-port /dev/ttyACM0
+```
+
+o con la imagen ya hecha: `esptool.py --chip esp32s3 write_flash 0x0 firmware/FARO-heltec-v4-meshcore-v1.18.0-sri2-ble.bin`.
+La primera compilación para ESP32 descarga las herramientas (~37 min). Después se configura nombre y radio desde
+SRI o con la librería `meshcore` (`set_name`, `set_radio`).
+
