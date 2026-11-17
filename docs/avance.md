@@ -270,6 +270,12 @@ llegó con RSSI -12 dBm). Para comparar alcance usar el SNR de los paquetes y la
   (dos nodos con el mismo nombre no se mezclan), le pone batería, temperatura y aceleración, y la Gráfica muestra
   el nodo de campo seleccionado. Se limpian los registros repetidos de versiones anteriores.
 - Probado con mensajes simulados (RABANITO, otro nodo con el mismo nombre y un nodo propio sin GPS).
+- Probado con los nodos reales y el paquete 0.6.5 conectado a FARO: RABANITO sale una sola vez (`d9a3737d`),
+  como nodo de campo, con temperatura (25 °C), batería y su barra de aceleración en la Gráfica.
+- Hallazgo: al reiniciar RABANITO (después de flashear) su **reloj se pierde** (iba 6 h atrás) y bajo techo no hay
+  GPS para corregirlo. SRI ya no usa la hora del nodo: toma la hora de llegada para reportes, gráfica y alertas
+  (las repeticiones de una alerta se siguen reconociendo).
+- La tarjeta del detector ya no pide flashear la base: dice que las caídas llegan de los nodos de campo.
 
 ---
 

@@ -338,7 +338,8 @@ class MeshCoreSource:
                     self._pos_red[clave] = pos
                 if nueva and pos.get("amax") is not None:
                     h = self._acel_red.setdefault(clave, collections.deque(maxlen=200))
-                    h.append([pos["epoch"], pos["amin"], pos["amax"]])
+                    h.append([pos["recibido"], pos["amin"], pos["amax"]])   # hora de la PC: el reloj del
+                                                                             # nodo puede estar mal (sin GPS)
             if nueva:
                 print(f"Posición por LoRa de {pos['nombre']}: {pos['lat']:.6f}, {pos['lon']:.6f}"
                       f" (GPS de hace {pos['edad']} s, acel {pos['amin']}-{pos['amax']} g)", flush=True)
@@ -623,7 +624,7 @@ class MeshCoreSource:
             n["campo"] = True                                  # nodo de campo: sus datos llegan por el canal SRI
             n["last_heard"] = max(n.get("last_heard") or 0, pos["recibido"])
             if pos.get("amax") is not None:
-                n["acel_red"] = {"min": pos["amin"], "max": pos["amax"], "time": pos["epoch"]}
+                n["acel_red"] = {"min": pos["amin"], "max": pos["amax"], "time": pos["recibido"]}
             if pos.get("temp") is not None:
                 n["temperature"] = pos["temp"]
             if pos.get("mv"):
@@ -632,7 +633,9 @@ class MeshCoreSource:
                 n["hops_away"] = pos["saltos"]
             if not valid(pos["lat"], pos["lon"]):              # sin GPS: solo telemetría
                 continue
-            tomada = pos["epoch"] - pos["edad"] if (pos.get("edad") or 0) > 0 else pos["epoch"]
+            # hora de la posición con el reloj de la PC (al recibir) menos su edad; el reloj del nodo se pierde
+            # al reiniciarlo y solo se corrige con GPS o con la app
+            tomada = pos["recibido"] - pos["edad"] if (pos.get("edad") or 0) > 0 else pos["recibido"]
             if (n.get("position_time") or 0) > tomada:
                 continue                                       # el anuncio trae una posición más nueva
             n.update(lat=pos["lat"], lon=pos["lon"], position_time=tomada, position_rx=pos["recibido"],

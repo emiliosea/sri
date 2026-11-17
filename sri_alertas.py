@@ -89,8 +89,11 @@ class AlertasRed:
                 prev["repeticiones"] = max(prev["repeticiones"], a.get("repeticion", 1))
                 prev["ultima_rx"] = int(time.time())
                 return False, dict(prev)
-            nueva = dict(a, recibido=int(time.time()), ultima_rx=int(time.time()), activa=True,
-                         repeticiones=a.get("repeticion", 1))
+            ahora = int(time.time())
+            nueva = dict(a, recibido=ahora, ultima_rx=ahora, activa=True, repeticiones=a.get("repeticion", 1))
+            if abs(a["epoch"] - ahora) > 600:              # reloj del nodo mal (se reinició sin GPS): usar la
+                nueva["epoch_nodo"] = a["epoch"]           # hora de llegada, menos lo que tardan las repeticiones
+                nueva["epoch"] = ahora - 20 * (a.get("repeticion", 1) - 1)
             self._alertas[clave] = nueva
             if len(self._alertas) > 200:                        # no crecer sin límite
                 viejas = sorted(self._alertas, key=lambda k: self._alertas[k]["recibido"])[:50]

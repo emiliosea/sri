@@ -1551,8 +1551,11 @@ function renderDetector(status) {
     det.textContent = ''; ctrl.style.display = 'none'; return;
   }
   if (!imp.available) {
-    est.textContent = 'no disponible';
-    det.textContent = 'El firmware del nodo no tiene detector. Flashea MeshCore v1.18.0-rabanito.';
+    const campo = nodes.filter(n => n.campo).map(n => n.long_name);
+    est.textContent = campo.length ? 'en los nodos de campo' : 'no disponible';
+    det.textContent = campo.length
+      ? `La base no tiene acelerómetro. Las caídas de ${campo.join(', ')} llegan por LoRa (aquí abajo) y su aceleración está en la Gráfica.`
+      : 'La base no tiene acelerómetro. Las caídas llegan por LoRa desde los nodos de campo (canal SRI).';
     ctrl.style.display = 'none'; return;
   }
   if (!imp.sensor_ok) {
