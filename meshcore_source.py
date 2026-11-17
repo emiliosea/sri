@@ -296,11 +296,19 @@ class MeshCoreSource:
         """Aceleración y movimientos de los últimos `seconds` segundos (para la gráfica)."""
         since = time.time() - seconds
         imp = self._impact or {}
-        with self._lock:                                   # resumen por LoRa del nodo de campo más reciente
-            red = max(((k, list(v)) for k, v in self._acel_red.items() if v), key=lambda kv: kv[1][-1][0],
-                      default=None)
-        lora = {"nodo": red[0], "puntos": [x for x in red[1] if x[0] >= since]} if red else None
-        return {"lora": lora,
+        import sri_alertas
+        with self._lock:                                   # resumen por LoRa de cada nodo de campo
+            series = []
+            for clave, h in self._acel_red.items():
+                if not h:
+                    continue
+                p = self._pos_red.get(clave) or {}
+                nombre = p.get("nombre") or clave
+                series.append({"num": sri_alertas.num_campo(nombre, p.get("id")), "nodo": nombre,
+                               "ultimo": h[-1][0], "puntos": [x for x in h if x[0] >= since]})
+        series.sort(key=lambda x: -x["ultimo"])
+        lora = series[0] if series else None              # el más reciente (si no hay nodo seleccionado)
+        return {"lora": lora, "lora_todos": series,
                 "samples": [x for x in list(self.acc_hist) if x[0] >= since],
                 "moves": [m for m in list(self.moves) if (m["time"] or 0) >= since],
                 "threshold_g": imp.get("threshold_g"),
@@ -322,13 +330,14 @@ class MeshCoreSource:
         pos = sri_alertas.leer_pos(p.get("text", ""))
         if pos:
             pos["saltos"], pos["recibido"] = p.get("path_len"), int(time.time())
+            clave = pos.get("id") or pos["nombre"]            # identidad fija si el firmware la manda (sri5)
             with self._lock:
-                prev = self._pos_red.get(pos["nombre"])
+                prev = self._pos_red.get(clave)
                 nueva = prev is None or pos["epoch"] > prev["epoch"]
                 if prev is None or pos["epoch"] >= prev["epoch"]:
-                    self._pos_red[pos["nombre"]] = pos
+                    self._pos_red[clave] = pos
                 if nueva and pos.get("amax") is not None:
-                    h = self._acel_red.setdefault(pos["nombre"], collections.deque(maxlen=200))
+                    h = self._acel_red.setdefault(clave, collections.deque(maxlen=200))
                     h.append([pos["epoch"], pos["amin"], pos["amax"]])
             if nueva:
                 print(f"Posición por LoRa de {pos['nombre']}: {pos['lat']:.6f}, {pos['lon']:.6f}"
@@ -591,39 +600,43 @@ class MeshCoreSource:
         return self.track(out)
 
     def _aplicar_pos_red(self, out, mi_llave):
-        """Posiciones que llegaron por el canal "SRI": se pegan al contacto con ese nombre (o se agrega el nodo)."""
+        """Reportes de los nodos de campo que llegaron por el canal "SRI" (posición, batería, temperatura,
+        aceleración). Se pegan al nodo con esa identidad (sri5: inicio de la llave) o, con firmware anterior,
+        con ese nombre; si la base no lo tiene en sus contactos, se agrega a la lista."""
+        import sri_alertas
         with self._lock:
             posiciones = [dict(x) for x in self._pos_red.values()]
         for pos in posiciones:
-            if not valid(pos["lat"], pos["lon"]):          # sin GPS: solo el resumen de aceleración
-                n = next((x for x in out if x["long_name"] == pos["nombre"] and not x["base"]), None)
-                if n is not None and pos.get("amax") is not None:
-                    n["acel_red"] = {"min": pos["amin"], "max": pos["amax"], "time": pos["epoch"]}
-                    n["last_heard"] = max(n.get("last_heard") or 0, pos["recibido"])
-                continue
-            n = next((x for x in out if x["long_name"] == pos["nombre"] and not x["base"]), None)
+            num = sri_alertas.num_campo(pos["nombre"], pos.get("id"))
+            if out and (out[0]["num"] == num or (not pos.get("id") and out[0]["long_name"] == pos["nombre"])):
+                continue                                       # es la base misma
+            n = next((x for x in out if not x["base"] and (x["num"] == num or
+                      (not pos.get("id") and x["long_name"] == pos["nombre"]))), None)
             if n is None:
-                if out and out[0]["long_name"] == pos["nombre"]:
-                    continue                                   # es la base misma
                 nm = pos["nombre"]
-                n = {"num": int.from_bytes(nm.encode()[:4].ljust(4, b"_"), "big"), "id": "lora", "key": "",
+                n = {"num": num, "id": pos.get("id") or "lora", "key": "",
                      "base": False, "long_name": nm, "short_name": nm[:4].upper(), "hw_model": "Nodo de campo",
                      "lat": None, "lon": None, "altitude": None, "position_time": None, "position_rx": None,
                      "battery": None, "voltage": None, "channel_util": None, "air_util_tx": None, "uptime": None,
                      "snr": None, "hops_away": None, "last_heard": None}
                 out.append(n)
+            n["campo"] = True                                  # nodo de campo: sus datos llegan por el canal SRI
             n["last_heard"] = max(n.get("last_heard") or 0, pos["recibido"])
             if pos.get("amax") is not None:
                 n["acel_red"] = {"min": pos["amin"], "max": pos["amax"], "time": pos["epoch"]}
+            if pos.get("temp") is not None:
+                n["temperature"] = pos["temp"]
+            if pos.get("mv"):
+                n["voltage"], n["battery"] = round(pos["mv"] / 1000, 2), battery_pct(pos["mv"])
+            if n.get("hops_away") is None and isinstance(pos.get("saltos"), int) and 0 <= pos["saltos"] < 64:
+                n["hops_away"] = pos["saltos"]
+            if not valid(pos["lat"], pos["lon"]):              # sin GPS: solo telemetría
+                continue
             tomada = pos["epoch"] - pos["edad"] if (pos.get("edad") or 0) > 0 else pos["epoch"]
             if (n.get("position_time") or 0) > tomada:
                 continue                                       # el anuncio trae una posición más nueva
             n.update(lat=pos["lat"], lon=pos["lon"], position_time=tomada, position_rx=pos["recibido"],
                      pos_via="lora", pos_edad=pos.get("edad"))
-            if pos.get("mv"):
-                n["voltage"], n["battery"] = round(pos["mv"] / 1000, 2), battery_pct(pos["mv"])
-            if n.get("hops_away") is None and isinstance(pos.get("saltos"), int) and 0 <= pos["saltos"] < 64:
-                n["hops_away"] = pos["saltos"]
 
     def info(self):
         with self._lock:

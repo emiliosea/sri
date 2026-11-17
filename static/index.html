@@ -3053,13 +3053,20 @@ document.getElementById('chartTableBtn').onclick = () => {
   renderChartTable();
 };
 
+// Serie por LoRa a mostrar: la del nodo de campo seleccionado; si no, la del más reciente. Solo cuando la base no
+// tiene acelerómetro propio (p. ej. FARO); si lo tiene, se muestra su aceleración en vivo.
+function chartLoraSerie() {
+  if (!chartData || (chartData.available && chartData.samples.length)) return null;
+  const todas = chartData.lora_todos || [];
+  return todas.find(x => x.num === selected) || chartData.lora || null;
+}
 async function loadChart() {
   if (!chartTab) return;
   try {
     chartData = await (await fetch(`/api/acel?segundos=${chartSecs}`)).json();
   } catch (e) { chartData = null; }
   const msg = document.getElementById('chartMsg');
-  const lr = chartData && chartData.lora && !(chartData.available && chartData.samples.length) ? chartData.lora : null;
+  const lr = chartLoraSerie();
   chartLora = !!lr;
   if (lr) document.getElementById('chartNode').textContent = lr.nodo;
   document.getElementById('chartSub').textContent = lr ? '|a| en g, resumen por LoRa (mín y máx cada 4 min)'
@@ -3101,7 +3108,7 @@ function drawChart() {
   let ymax = 2;
   for (const s of S) ymax = Math.max(ymax, s[3]);
   for (const m of M) ymax = Math.max(ymax, m.peak_g);
-  const LR = chartData && chartData.lora && !(chartData.available && S.length) ? chartData.lora.puntos : [];
+  const LRs = chartLoraSerie(), LR = LRs ? LRs.puntos : [];
   for (const p of LR) ymax = Math.max(ymax, p[2]);
   if (thr) ymax = Math.max(ymax, lastRest + thr);
   ymax *= 1.12;

@@ -14,7 +14,7 @@ con elevación.
 |---|---|
 | Interfaz web | Funcionando |
 | Conexión con el nodo por **Bluetooth** o **USB** | Funcionando (Linux) |
-| Firmware MeshCore v1.18.0 modificado (`v1.18.0-sri4`: detector, alertas, posición y resumen de aceleración cada 4 min por LoRa) | En RABANITO (T1000-E) y FARO (Heltec V4) |
+| Firmware MeshCore v1.18.0 modificado (`v1.18.0-sri5`: nodos de campo que mandan alertas, posición, temperatura y aceleración por LoRa a la base FARO) | En RABANITO (T1000-E) y FARO (Heltec V4) |
 | Detector de caídas/golpes (banco de 5 s, pico - reposo) | Funcionando; 35 eventos de prueba |
 | Acelerómetro a ±32 g con calibración de 6 caras | Calibrado (reposo = 1.00 g) |
 | Ruta desde la PC hasta el nodo | Funcionando (ubicación de la PC por lugares Wi-Fi) |
@@ -67,9 +67,9 @@ empaquetar/               Construcción del programa (PyInstaller) y del paquete
 region/                   Construcción del paquete de región (mapa, relieve, agua) para usar sin internet
 firmware/
   rabanito-acelerometro.patch               Cambios sobre MeshCore v1.18.0
-  RABANITO-meshcore-v1.18.0-sri4-ble.uf2  Firmware Bluetooth listo para flashear (T1000-E)
-  RABANITO-meshcore-v1.18.0-sri4.uf2      Firmware USB listo para flashear (T1000-E)
-  FARO-heltec-v4-meshcore-v1.18.0-sri4-ble.bin  Imagen completa para Heltec V4 (en 0x0)
+  RABANITO-meshcore-v1.18.0-sri5-ble.uf2  Firmware Bluetooth listo para flashear (T1000-E)
+  RABANITO-meshcore-v1.18.0-sri5.uf2      Firmware USB listo para flashear (T1000-E)
+  FARO-heltec-v4-meshcore-v1.18.0-sri5-ble.bin  Imagen completa para Heltec V4 (en 0x0)
 docs/                     Documentación; docs/img/ con diagramas (generar_diagramas.py) y capturas
 herramientas/             Scripts auxiliares de etapas anteriores
 requirements.txt          Dependencias (requirements.lock: versiones exactas probadas)

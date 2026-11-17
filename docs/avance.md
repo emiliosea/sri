@@ -23,6 +23,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 16. Segundo nodo: FARO | 17 nov 2026 | Heltec V4 (ESP32-S3) con MeshCore sri2; canal SRI y primera alerta por LoRa de FARO a RABANITO |
 | 17. Posición cada 4 min | 17 nov 2026 | Firmware sri3: RABANITO manda su GPS por el canal SRI; primera prueba al aire libre |
 | 18. Aceleración por LoRa | 17 nov 2026 | Firmware sri4: resumen mín/máx de aceleración y edad del GPS; gráfica de RABANITO con FARO de base |
+| 19. Base FARO y nodos de campo | 17 nov 2026 | Firmware sri5: identidad fija y temperatura en los mensajes; SRI junta todos los nodos de campo; protocolo para un nodo propio |
 
 ---
 
@@ -256,6 +257,19 @@ llegó con RSSI -12 dBm). Para comparar alcance usar el SNR de los paquetes y la
 - RABANITO ya tiene sri4 (cargado por USB). FARO sigue en sri3 (no tiene GPS ni acelerómetro; no le cambia nada).
 - Bajo techo la posición se repite igual: es la última con señal, ahora marcada con su edad.
 - Pendiente: ver el primer resumen real en la gráfica y la prueba de alcance al aire libre.
+
+## Etapa 19 - FARO como base de todos los nodos de campo (17 nov)
+
+- Arreglo definido: los **nodos de campo** (hoy RABANITO; después un nodo SRI propio) mandan todo por el canal
+  "SRI"; **FARO** queda fijo y lo pasa a la PC por Bluetooth; **SRI** lo junta, grafica y procesa. Ver la
+  arquitectura y el protocolo en [firmware.md](firmware.md).
+- Problema: RABANITO salía dos veces, porque SRI identificaba a los nodos de campo por su nombre (un número
+  sacado del nombre) y RABANITO ya estaba guardado con el número de su llave de cuando era la base.
+- Firmware **`v1.18.0-sri5`**: alertas y reportes llevan la **identidad fija** del nodo (`i` + 8 hex de su llave)
+  y el reporte lleva la **temperatura** del sensor (`c`). SRI identifica a cada nodo de campo por esa identidad
+  (dos nodos con el mismo nombre no se mezclan), le pone batería, temperatura y aceleración, y la Gráfica muestra
+  el nodo de campo seleccionado. Se limpian los registros repetidos de versiones anteriores.
+- Probado con mensajes simulados (RABANITO, otro nodo con el mismo nombre y un nodo propio sin GPS).
 
 ---
 

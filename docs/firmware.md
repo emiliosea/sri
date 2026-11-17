@@ -1,7 +1,7 @@
 # Firmware del nodo (MeshCore modificado)
 
-RABANITO usa **MeshCore v1.18.0** (commit `81dbae5`) con cambios propios, versión **`v1.18.0-sri4`**
-(antes `v1.18.0-rabanito`; la sri2 agrega las **alertas por LoRa** la sri3 la **posición cada 4 minutos** y la sri4 el **resumen de aceleración** en esa posición).
+RABANITO usa **MeshCore v1.18.0** (commit `81dbae5`) con cambios propios, versión **`v1.18.0-sri5`**
+(antes `v1.18.0-rabanito`; la sri2 agrega las **alertas por LoRa** la sri3 la **posición cada 4 minutos** la sri4 el **resumen de aceleración** y la sri5 la **identidad fija y la temperatura** del nodo de campo).
 Los cambios están en [`firmware/rabanito-acelerometro.patch`](../firmware/rabanito-acelerometro.patch).
 
 ## Qué cambia respecto al MeshCore oficial
@@ -12,8 +12,8 @@ Los cambios están en [`firmware/rabanito-acelerometro.patch`](../firmware/raban
 | `variants/t1000-e/target.cpp` | Lectura del QMA6100P (±32 g), detector de caídas, calibración, nuevas custom vars, ejes en la telemetría (canal 2) |
 | `src/helpers/nrf52/SerialBLEInterface.cpp` | Opción `BLE_NO_PIN`: canal de datos Bluetooth sin PIN (la actualización DFU por Bluetooth sigue con PIN) |
 | `src/helpers/esp32/SerialBLEInterface.cpp` | La misma opción `BLE_NO_PIN` para placas ESP32 (FARO, Heltec V4) |
-| `variants/heltec_v4/platformio.ini` | Objetivo `heltec_v4_companion_radio_ble_sri` (versión `v1.18.0-sri4-ble`, con `BLE_NO_PIN`) |
-| `variants/t1000-e/platformio.ini` | Versión `v1.18.0-sri4` (USB) y `v1.18.0-sri4-ble` (Bluetooth, con `BLE_NO_PIN`) |
+| `variants/heltec_v4/platformio.ini` | Objetivo `heltec_v4_companion_radio_ble_sri` (versión `v1.18.0-sri5-ble`, con `BLE_NO_PIN`) |
+| `variants/t1000-e/platformio.ini` | Versión `v1.18.0-sri5` (USB) y `v1.18.0-sri5-ble` (Bluetooth, con `BLE_NO_PIN`) |
 | `examples/companion_radio/MyMesh.cpp/.h` | `alertaSRI()`: manda la caída/golpe por el canal de grupo "SRI" (ver abajo) |
 
 El algoritmo se explica en [detector-de-caidas.md](detector-de-caidas.md).
@@ -22,9 +22,9 @@ El algoritmo se explica en [detector-de-caidas.md](detector-de-caidas.md).
 
 | Archivo | Uso |
 |---|---|
-| `firmware/RABANITO-meshcore-v1.18.0-sri4-ble.uf2` | **Bluetooth** (el de RABANITO y los nodos de campo). El USB solo carga. |
-| `firmware/RABANITO-meshcore-v1.18.0-sri4.uf2` | **USB** (datos por cable, sin Bluetooth) |
-| `firmware/FARO-heltec-v4-meshcore-v1.18.0-sri4-ble.bin` | **FARO** (Heltec V4, ESP32-S3): imagen completa por Bluetooth, se carga en la dirección 0x0 |
+| `firmware/RABANITO-meshcore-v1.18.0-sri5-ble.uf2` | **Bluetooth** (el de RABANITO y los nodos de campo). El USB solo carga. |
+| `firmware/RABANITO-meshcore-v1.18.0-sri5.uf2` | **USB** (datos por cable, sin Bluetooth) |
+| `firmware/FARO-heltec-v4-meshcore-v1.18.0-sri5-ble.bin` | **FARO** (Heltec V4, ESP32-S3): imagen completa por Bluetooth, se carga en la dirección 0x0 |
 
 ## Flashear
 
@@ -61,13 +61,69 @@ cd .. && uv venv -q .venv-pio && uv pip install -q -p .venv-pio platformio
 cd MeshCore
 ../.venv-pio/bin/pio run -e t1000e_companion_radio_ble
 ../.venv-pio/bin/python bin/uf2conv/uf2conv.py -f 0xADA52840 -c \
-    .pio/build/t1000e_companion_radio_ble/firmware.hex -o ../RABANITO-meshcore-v1.18.0-sri4-ble.uf2
+    .pio/build/t1000e_companion_radio_ble/firmware.hex -o ../RABANITO-meshcore-v1.18.0-sri5-ble.uf2
 ```
 
 Notas:
 - La conversión a `.uf2` se hace a mano porque el objetivo `-t create_uf2` de MeshCore falla con rutas que
   tienen espacios (como "SRI TESIS").
 - No correr dos compilaciones al mismo tiempo en la misma carpeta.
+
+## Arquitectura: nodos de campo, base FARO y SRI
+
+```
+ nodos de campo (los lleva la persona)        base fija                    PC
+ RABANITO (T1000-E) ─┐                     ┌──────────┐  Bluetooth   ┌──────────────┐
+ nodo SRI propio  ───┼── LoRa, canal "SRI" │   FARO   │ ───────────▶ │ SRI: mapa,   │
+ otros nodos ...  ───┘   (privado, frase)  │ Heltec V4│              │ gráfica,     │
+                                           └──────────┘              │ alertas      │
+                                                                     └──────────────┘
+```
+
+- **Nodos de campo:** miden y mandan solos (sin app ni PC) por el canal privado **"SRI"**: alertas de caída/golpe
+  al momento y un **reporte cada 4 min** (posición GPS, batería, temperatura, aceleración mín/máx). Cada mensaje
+  lleva la **identidad fija** del nodo (`i` + inicio de su llave pública), así dos nodos con el mismo nombre no se
+  confunden y SRI lo reconoce aunque cambie de nombre.
+- **FARO (base):** queda fijo, conectado a la PC por Bluetooth; solo escucha el canal y pasa los mensajes. No
+  necesita GPS ni acelerómetro.
+- **SRI:** junta los reportes de todos los nodos de campo: los pone en el mapa, la hoja Dispositivo y la ficha de
+  cada nodo; la Gráfica muestra la aceleración del nodo de campo seleccionado; las alertas suenan y trazan la ruta.
+
+### Protocolo para un nodo de campo propio
+
+Cualquier placa con MeshCore (u otro firmware que hable MeshCore) sirve como nodo de campo si manda estos
+**mensajes de texto al canal de grupo "SRI"** (misma frase que la base; la llave es
+`sha256("SRI:" + frase)[:16]`). MeshCore antepone el nombre del nodo (`NOMBRE: `). Campos separados por espacio;
+los que no tenga la placa se omiten (salvo los marcados como obligatorios).
+
+**Reporte periódico** (sugerido cada 4 min):
+
+```
+SRI1 POS @<lat>,<lon> t<hora> [b<mV>] [e<seg>] [a<mín>/<máx>] [c<°C>] [i<id>]
+SRI1 POS @25.661943,-100.422518 t1794953624 b4018 e3 a0.92/1.85 c23.7 id9a3737d
+```
+
+| Campo | Qué es |
+|---|---|
+| `@lat,lon` | **Obligatorio.** Posición en grados (6 decimales). Sin GPS: `@0.000000,0.000000` (SRI solo usa la telemetría) |
+| `t` | **Obligatorio.** Hora del nodo (segundos Unix) |
+| `b` | Batería en mV |
+| `e` | Segundos desde la última posición GPS válida (-1 = nunca); si es grande el GPS perdió la señal |
+| `a` | Aceleración mínima/máxima en g desde el reporte anterior |
+| `c` | Temperatura del sensor del nodo en °C (no la del chip) |
+| `i` | Identidad: 8 caracteres hex, inicio de la llave pública del nodo. Muy recomendado |
+
+**Alerta** (al detectar; se repite 3 veces cada 20 s porque los mensajes de canal no tienen acuse):
+
+```
+SRI1 <CAIDA|GOLPE> dif <g>g pico <g>g [@<lat>,<lon>] t<hora> #<n.º de evento> (<rep>/3) [i<id>]
+SRI1 CAIDA dif 7.97g pico 8.79g @25.662300,-100.422100 t1794705000 #3 (1/3) id9a3737d
+```
+
+El orden de los campos importa (SRI los lee en ese orden). En el firmware de este proyecto lo hacen
+`MyMesh::alertaSRI()` y `MyMesh::posicionSRI()` (`examples/companion_radio/MyMesh.cpp`), que toman los datos del
+`SensorManager` de la placa (variables `alerta` y `resumen`; ver `variants/t1000-e/target.cpp`). Un nodo propio
+puede reusar esas dos funciones implementando esas dos variables en su `SensorManager`.
 
 ## Alertas por LoRa (v1.18.0-sri2)
 
@@ -143,7 +199,7 @@ cd firmware/MeshCore
 ../.venv-pio/bin/pio run -e heltec_v4_companion_radio_ble_sri -t upload --upload-port /dev/ttyACM0
 ```
 
-o con la imagen ya hecha: `esptool.py --chip esp32s3 write_flash 0x0 firmware/FARO-heltec-v4-meshcore-v1.18.0-sri4-ble.bin`.
+o con la imagen ya hecha: `esptool.py --chip esp32s3 write_flash 0x0 firmware/FARO-heltec-v4-meshcore-v1.18.0-sri5-ble.bin`.
 La primera compilación para ESP32 descarga las herramientas (~37 min). Después se configura nombre y radio desde
 SRI o con la librería `meshcore` (`set_name`, `set_radio`).
 

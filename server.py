@@ -710,14 +710,21 @@ def index():
 @app.route("/api/nodes")
 def api_nodes():
     nodes = source.nodes()
+    # Última posición guardada de los nodos que no están ahora. Sin repetir nombres: un nodo de campo con firmware
+    # anterior a sri5 se guardaba con un número sacado del nombre; se queda solo el registro más reciente.
     nombres = {n.get("long_name") for n in nodes}
-    nodes += [n for n in last_seen.missing(nodes) if n.get("long_name") not in nombres]  # última posición guardada
-                                                     # (sin repetir un nodo que ya llegó por LoRa con otro número)
+    guardados = {}
+    for n in sorted(last_seen.missing(nodes), key=lambda x: x.get("last_heard") or 0):
+        if n.get("long_name") not in nombres:
+            guardados[n.get("long_name")] = n
+    nodes += list(guardados.values())
     # Alertas por LoRa: se pegan a su nodo; si el nodo no está en la lista, se agrega con la posición de la alerta
     for a in alertas_red.activas():
-        n = next((x for x in nodes if x.get("long_name") == a["nombre"]), None)
+        num = sri_alertas.num_campo(a["nombre"], a.get("id"))
+        n = next((x for x in nodes if x.get("num") == num), None) or \
+            next((x for x in nodes if x.get("long_name") == a["nombre"]), None)
         if n is None:
-            n = {"num": int.from_bytes(a["nombre"].encode()[:4].ljust(4, b"_"), "big"), "id": "lora",
+            n = {"num": num, "id": a.get("id") or "lora",
                  "long_name": a["nombre"], "short_name": a["nombre"][:4].upper(), "hw_model": "Nodo de campo",
                  "lat": None, "lon": None, "last_heard": a["ultima_rx"], "base": False}
             nodes.append(n)
