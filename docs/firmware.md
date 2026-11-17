@@ -107,7 +107,7 @@ de prueba de fábrica ("IO Output test") y el 17 nov 2026 se le cargó MeshCore 
 | Papel | Nodo de campo por Bluetooth (companion) |
 | Modelo que reporta | Heltec V4.3 OLED |
 | Radio | 915.0 MHz, BW 62.5 kHz, SF 8, CR 4/5 (igual que RABANITO) |
-| Potencia | 10 (valor del SX1262; con el amplificador de la placa sale ~22 dBm según MeshCore) |
+| Potencia | 10 (valor del SX1262; con el amplificador de la placa sale ~22 dBm según MeshCore). SRI muestra la salida en la antena y marca la temperatura como "del chip" |
 | Sensores | No tiene acelerómetro ni GPS: no detecta caídas por sí solo. La "temperatura" que reporta es la del chip (~47 °C), no la del ambiente |
 
 **Flashear** (por USB, sin botones):

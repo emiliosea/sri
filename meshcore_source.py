@@ -37,6 +37,29 @@ def valid(lat, lon):
     return lat is not None and lon is not None and not (abs(lat) < 1e-6 and abs(lon) < 1e-6)
 
 
+
+# Placas sin sensor de ambiente: la "temperatura" que reportan es la del microcontrolador (no sirve como clima).
+TEMP_DEL_CHIP = ("Heltec",)
+# Placas con amplificador de potencia: el ajuste del nodo es el del chip de radio, no lo que sale por la antena.
+# Valores de la documentación de MeshCore (docs/faq.md, tabla de potencia): ajuste -> salida aprox. en dBm.
+SALIDA_CON_AMPLIFICADOR = {"Heltec V4": {10: 22, 22: 28}}
+
+
+def temp_es_del_chip(modelo):
+    return any(m in (modelo or "") for m in TEMP_DEL_CHIP)
+
+
+def texto_potencia(modelo, ajuste, maximo):
+    """Potencia TX como la entiende una persona: con amplificador se muestra lo que sale por la antena."""
+    base = f"{ajuste} dBm (máx {maximo})"
+    for m, tabla in SALIDA_CON_AMPLIFICADOR.items():
+        if m in (modelo or "") and ajuste is not None:
+            sal = tabla.get(ajuste)
+            return (f"~{sal} dBm en la antena (ajuste {ajuste} del chip, la placa amplifica)" if sal
+                    else f"ajuste {ajuste} del chip; la placa amplifica, la salida real es mayor")
+    return base
+
+
 class MeshCoreSource:
     """Conexión real a un nodo MeshCore (companion USB o BLE)."""
 
@@ -494,6 +517,7 @@ class MeshCoreSource:
         me = s["info"]
         mv = s["battery_mv"] or (s["volt"] * 1000 if s["volt"] else None)
         name = me.get("name") or "?"
+        chip = temp_es_del_chip(dev.get("model"))
         out = [{
             "num": num_from_key(me["public_key"]), "id": me["public_key"][:12], "key": me["public_key"], "base": True,
             "long_name": name, "short_name": name[:4].upper(), "hw_model": dev.get("model"),
@@ -502,7 +526,8 @@ class MeshCoreSource:
             "battery": battery_pct(mv), "voltage": round(mv / 1000, 2) if mv else None,
             "channel_util": None, "air_util_tx": None, "uptime": s["uptime"],
             "snr": None, "hops_away": 0, "last_heard": s["seen"],
-            "temperature": s["temps"][0] if s["temps"] else None, "lux": s["lux"],
+            "temperature": (s["temps"][0] if s["temps"] and not chip else None), "lux": s["lux"],
+            "temp_chip": (s["temps"][0] if s["temps"] and chip else None),
             "impact": self._impact,
             "gps_on": None if gps is None else gps == "1",     # False = GPS apagado en el nodo
         }]
@@ -550,7 +575,8 @@ class MeshCoreSource:
             ["GPS y sensores", [
                 ["GPS", "Encendido" if gps == "1" else "Apagado" if gps == "0" else gps],
                 ["Compartir ubicación en anuncios", "Sí" if me.get("adv_loc_policy") else "No"],
-                ["Temperatura", " / ".join(f"{t:.1f} °C" for t in s["temps"]) or None],
+                ["Temperatura del chip (no es del ambiente)" if temp_es_del_chip(dev.get("model")) else "Temperatura",
+                 " / ".join(f"{t:.1f} °C" for t in s["temps"]) or None],
                 ["Luz", f"{s['lux']:.0f} lux" if s["lux"] is not None else None],
                 ["Batería", f"{s['battery_mv']} mV" if s["battery_mv"] else None],
             ]],
@@ -558,7 +584,7 @@ class MeshCoreSource:
                 ["Frecuencia", f"{me.get('radio_freq')} MHz"],
                 ["Ancho de banda", f"{me.get('radio_bw')} kHz"],
                 ["Spreading factor", me.get("radio_sf")], ["Coding rate", f"4/{me.get('radio_cr')}"],
-                ["Potencia TX", f"{me.get('tx_power')} dBm (máx {me.get('max_tx_power')})"],
+                ["Potencia TX", texto_potencia(dev.get("model"), me.get("tx_power"), me.get("max_tx_power"))],
             ]],
             ["Conexión", [
                 ["Puerto", f"Bluetooth {self.ble}" if self.ble else (self.dev_path or "USB (autodetectado)")],

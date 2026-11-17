@@ -1305,6 +1305,7 @@ function renderDetail() {
     ['SNR', fmt(n.snr, 1, ' dB')], ['Saltos', n.hops_away ?? '--'],
     ['Encendido', { html: liveSpan('uptime', n.uptime, n.uptime_at) }],
     ...(n.temperature != null ? [['Temperatura', fmt(n.temperature, 1, ' °C')]] : []),
+    ...(n.temp_chip != null ? [['Temp. del chip', fmt(n.temp_chip, 1, ' °C')]] : []),
     ...(n.lux != null ? [['Luz', fmt(n.lux, 0, ' lux')]] : []),
   ];
   el.innerHTML = `<h2>${esc(n.long_name)}</h2>${dp ? `<div class="coordbox" style="padding-bottom:10px">${coordsBlock(dp)}</div>` : ''}<table>${
