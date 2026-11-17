@@ -22,6 +22,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 15. Ventana nativa | 15 nov 2026 | SRI sin navegador: ventana propia GTK + WebKit |
 | 16. Segundo nodo: FARO | 17 nov 2026 | Heltec V4 (ESP32-S3) con MeshCore sri2; canal SRI y primera alerta por LoRa de FARO a RABANITO |
 | 17. Posición cada 4 min | 17 nov 2026 | Firmware sri3: RABANITO manda su GPS por el canal SRI; primera prueba al aire libre |
+| 18. Aceleración por LoRa | 17 nov 2026 | Firmware sri4: resumen mín/máx de aceleración y edad del GPS; gráfica de RABANITO con FARO de base |
 
 ---
 
@@ -237,6 +238,24 @@ Hallazgos para resolver:
    (`_bajar_cola`); las alertas y posiciones repetidas se ignoran. Probado con mensajes simulados; falta probarlo
    con los nodos.
 3. La bitácora de SRI no tenía hora: para pruebas, correr el servidor con hora en cada línea.
+
+**Con antena (17 nov, 22:15).** FARO y RABANITO juntos: SRI 0.6.3 conectado a FARO recibió la posición de RABANITO
+(0 saltos). Ruido de fondo en el mismo lugar: FARO **-90 dBm**, RABANITO **-119 dBm**; con antena el de FARO subió
+(antes -98). Ojo: el `noise_floor` de FARO no se compara directo con el de RABANITO, porque el Heltec V4.3 tiene
+un amplificador de recepción (LNA) antes del chip que sube igual la señal y el ruido (la señal de RABANITO a 1 m
+llegó con RSSI -12 dBm). Para comparar alcance usar el SNR de los paquetes y la distancia máxima, no el ruido.
+
+## Etapa 18 - Aceleración de RABANITO con FARO de base (17 nov)
+
+- En las pruebas RABANITO lo lleva la persona y FARO es la base; la gráfica mostraba el nodo conectado a la PC
+  (FARO, sin acelerómetro). La aceleración en vivo (1 lectura/s) no cabe por LoRa, así que el firmware
+  **`v1.18.0-sri4`** agrega a cada posición (cada 4 min) el **mínimo y máximo** de aceleración del intervalo y
+  la **edad de la posición GPS** (`e`); las caídas siguen llegando al momento como alertas.
+- SRI 0.6.4 dibuja ese resumen como barras mín-máx en la Gráfica (ventanas de 15 min y 1 h) y avisa en la ficha
+  cuando el GPS no tiene señal. Se quitó el nodo repetido (RABANITO por LoRa y su última posición guardada).
+- RABANITO ya tiene sri4 (cargado por USB). FARO sigue en sri3 (no tiene GPS ni acelerómetro; no le cambia nada).
+- Bajo techo la posición se repite igual: es la última con señal, ahora marcada con su edad.
+- Pendiente: ver el primer resumen real en la gráfica y la prueba de alcance al aire libre.
 
 ---
 

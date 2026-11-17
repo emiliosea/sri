@@ -710,7 +710,9 @@ def index():
 @app.route("/api/nodes")
 def api_nodes():
     nodes = source.nodes()
-    nodes += last_seen.missing(nodes)  # aunque no haya conexión, mostrar la última posición guardada
+    nombres = {n.get("long_name") for n in nodes}
+    nodes += [n for n in last_seen.missing(nodes) if n.get("long_name") not in nombres]  # última posición guardada
+                                                     # (sin repetir un nodo que ya llegó por LoRa con otro número)
     # Alertas por LoRa: se pegan a su nodo; si el nodo no está en la lista, se agrega con la posición de la alerta
     for a in alertas_red.activas():
         n = next((x for x in nodes if x.get("long_name") == a["nombre"]), None)
@@ -874,10 +876,10 @@ def api_gps():
 
 @app.route("/api/acel")
 def api_accel():
-    """Historial de aceleración para la gráfica. ?segundos=60 (máx 900)."""
+    """Historial de aceleración para la gráfica. ?segundos=60 (máx 3600)."""
     from flask import request
     try:
-        secs = max(10, min(900, int(request.args.get("segundos", 60))))
+        secs = max(10, min(3600, int(request.args.get("segundos", 60))))
     except ValueError:
         secs = 60
     if not hasattr(source, "accel_history"):

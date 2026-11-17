@@ -22,18 +22,23 @@ PATRON = re.compile(
 
 
 # Posición periódica (firmware sri3, cada 4 min):  "NOMBRE: SRI1 POS @25.662300,-100.422100 t1794705000 b3920"
+# Desde sri4 agrega " e<seg>" (segundos desde la última posición GPS válida; -1 = nunca) y " a<mín>/<máx>"
+# (aceleración en g desde la posición anterior). Sin GPS la posición llega como 0,0 (solo sirve el resumen).
 PATRON_POS = re.compile(
-    r"^(?P<nombre>.+?): SRI1 POS @(?P<lat>-?\d+(?:\.\d+)?),(?P<lon>-?\d+(?:\.\d+)?) t(?P<epoch>\d+)(?: b(?P<mv>\d+))?")
+    r"^(?P<nombre>.+?): SRI1 POS @(?P<lat>-?\d+(?:\.\d+)?),(?P<lon>-?\d+(?:\.\d+)?) t(?P<epoch>\d+)"
+    r"(?: b(?P<mv>\d+))?(?: e(?P<edad>-?\d+))?(?: a(?P<amin>\d+(?:\.\d+)?)/(?P<amax>\d+(?:\.\d+)?))?")
 
 
 def leer_pos(texto):
-    """Texto del mensaje de canal -> {nombre, lat, lon, epoch, mv}, o None si no es una posición SRI."""
+    """Texto del mensaje de canal -> {nombre, lat, lon, epoch, mv, edad, amin, amax}, o None si no es posición SRI."""
     m = PATRON_POS.match((texto or "").strip())
     if not m:
         return None
     d = m.groupdict()
+    num = lambda k, f=float: f(d[k]) if d[k] is not None else None  # noqa: E731
     return {"nombre": d["nombre"].strip(), "lat": float(d["lat"]), "lon": float(d["lon"]),
-            "epoch": int(d["epoch"]), "mv": int(d["mv"]) if d["mv"] else None}
+            "epoch": int(d["epoch"]), "mv": num("mv", int), "edad": num("edad", int),
+            "amin": num("amin"), "amax": num("amax")}
 
 
 def clave_canal(frase):

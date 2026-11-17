@@ -81,6 +81,7 @@ class MeshCoreSource:
         self._pos_rx = None         # cuándo llegó la última posición GPS válida
         self._impact = None         # estado del detector de caídas (firmware v1.18.0-rabanito)
         self._pos_red = {}          # nombre -> última posición recibida por el canal "SRI" (firmware sri3)
+        self._acel_red = {}         # nombre -> deque [[hora, mín g, máx g], ...] (resumen sri4 cada 4 min)
         self.on_impact = None       # función del servidor que se llama con cada evento nuevo
         self.acc_hist = collections.deque(maxlen=HIST_SECS // IMPACT_SECS)  # [t, actual, mín, máx]
         self.moves = collections.deque(maxlen=300)   # movimientos evaluados al quedar en reposo
@@ -295,7 +296,12 @@ class MeshCoreSource:
         """Aceleración y movimientos de los últimos `seconds` segundos (para la gráfica)."""
         since = time.time() - seconds
         imp = self._impact or {}
-        return {"samples": [x for x in list(self.acc_hist) if x[0] >= since],
+        with self._lock:                                   # resumen por LoRa del nodo de campo más reciente
+            red = max(((k, list(v)) for k, v in self._acel_red.items() if v), key=lambda kv: kv[1][-1][0],
+                      default=None)
+        lora = {"nodo": red[0], "puntos": [x for x in red[1] if x[0] >= since]} if red else None
+        return {"lora": lora,
+                "samples": [x for x in list(self.acc_hist) if x[0] >= since],
                 "moves": [m for m in list(self.moves) if (m["time"] or 0) >= since],
                 "threshold_g": imp.get("threshold_g"),
                 "available": bool(imp.get("available")) and bool(imp.get("sensor_ok"))}
@@ -318,9 +324,15 @@ class MeshCoreSource:
             pos["saltos"], pos["recibido"] = p.get("path_len"), int(time.time())
             with self._lock:
                 prev = self._pos_red.get(pos["nombre"])
+                nueva = prev is None or pos["epoch"] > prev["epoch"]
                 if prev is None or pos["epoch"] >= prev["epoch"]:
                     self._pos_red[pos["nombre"]] = pos
-            print(f"Posición por LoRa de {pos['nombre']}: {pos['lat']:.6f}, {pos['lon']:.6f}", flush=True)
+                if nueva and pos.get("amax") is not None:
+                    h = self._acel_red.setdefault(pos["nombre"], collections.deque(maxlen=200))
+                    h.append([pos["epoch"], pos["amin"], pos["amax"]])
+            if nueva:
+                print(f"Posición por LoRa de {pos['nombre']}: {pos['lat']:.6f}, {pos['lon']:.6f}"
+                      f" (GPS de hace {pos['edad']} s, acel {pos['amin']}-{pos['amax']} g)", flush=True)
             return
         a = sri_alertas.leer(p.get("text", ""))
         if a and self.on_alerta_red:
@@ -583,7 +595,11 @@ class MeshCoreSource:
         with self._lock:
             posiciones = [dict(x) for x in self._pos_red.values()]
         for pos in posiciones:
-            if not valid(pos["lat"], pos["lon"]):
+            if not valid(pos["lat"], pos["lon"]):          # sin GPS: solo el resumen de aceleración
+                n = next((x for x in out if x["long_name"] == pos["nombre"] and not x["base"]), None)
+                if n is not None and pos.get("amax") is not None:
+                    n["acel_red"] = {"min": pos["amin"], "max": pos["amax"], "time": pos["epoch"]}
+                    n["last_heard"] = max(n.get("last_heard") or 0, pos["recibido"])
                 continue
             n = next((x for x in out if x["long_name"] == pos["nombre"] and not x["base"]), None)
             if n is None:
@@ -596,11 +612,14 @@ class MeshCoreSource:
                      "battery": None, "voltage": None, "channel_util": None, "air_util_tx": None, "uptime": None,
                      "snr": None, "hops_away": None, "last_heard": None}
                 out.append(n)
-            if (n.get("position_time") or 0) > pos["epoch"]:
-                continue                                       # el anuncio trae una posición más nueva
-            n.update(lat=pos["lat"], lon=pos["lon"], position_time=pos["epoch"], position_rx=pos["recibido"],
-                     pos_via="lora")
             n["last_heard"] = max(n.get("last_heard") or 0, pos["recibido"])
+            if pos.get("amax") is not None:
+                n["acel_red"] = {"min": pos["amin"], "max": pos["amax"], "time": pos["epoch"]}
+            tomada = pos["epoch"] - pos["edad"] if (pos.get("edad") or 0) > 0 else pos["epoch"]
+            if (n.get("position_time") or 0) > tomada:
+                continue                                       # el anuncio trae una posición más nueva
+            n.update(lat=pos["lat"], lon=pos["lon"], position_time=tomada, position_rx=pos["recibido"],
+                     pos_via="lora", pos_edad=pos.get("edad"))
             if pos.get("mv"):
                 n["voltage"], n["battery"] = round(pos["mv"] / 1000, 2), battery_pct(pos["mv"])
             if n.get("hops_away") is None and isinstance(pos.get("saltos"), int) and 0 <= pos["saltos"] < 64:

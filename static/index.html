@@ -612,9 +612,9 @@
     <div id="map"></div>
   <div id="chartPane" style="display:none">
     <div class="chead">
-      <div><b>Aceleración de <span id="chartNode">RABANITO</span></b> <span class="sub">|a| en g, en vivo (1 lectura por segundo)</span></div>
+      <div><b>Aceleración de <span id="chartNode">RABANITO</span></b> <span class="sub" id="chartSub">|a| en g, en vivo (1 lectura por segundo)</span></div>
       <div class="crange">ventana:
-        <button class="cbtn on" data-s="60">1 min</button><button class="cbtn" data-s="300">5 min</button><button class="cbtn" data-s="900">15 min</button>
+        <button class="cbtn on" data-s="60">1 min</button><button class="cbtn" data-s="300">5 min</button><button class="cbtn" data-s="900">15 min</button><button class="cbtn" data-s="3600">1 h</button>
         <button class="cbtn" id="chartTableBtn">[ Tabla ]</button>
       </div>
     </div>
@@ -1300,7 +1300,10 @@ function renderDetail() {
     ['Último escuchado', ago(n.last_heard)],
     ['Posición', dp ? (dp.live ? 'Actual' : 'Última conocida (GPS sin señal)') : 'Sin GPS'],
     ['Posición tomada', dp ? `${ago(dp.position_time)} | ${fullTime(dp.position_time)}` : '--'],
-    ...(n.pos_via === 'lora' ? [['Posición llega', 'por LoRa, canal SRI (cada 4 min)']] : []),
+    ...(n.pos_via === 'lora' ? [['Posición llega', 'por LoRa, canal SRI (cada 4 min)' +
+        (n.pos_edad > 60 ? ` | GPS sin señal: posición de hace ${Math.round(n.pos_edad / 60)} min` : '')]] : []),
+    ...(n.acel_red ? [['Aceleración (LoRa)', `mín ${n.acel_red.min.toFixed(2)} g, máx ${n.acel_red.max.toFixed(2)} g ` +
+        `entre ${hhmmss(n.acel_red.time - 240)} y ${hhmmss(n.acel_red.time)}`]] : []),
     ['Batería', batteryText(n.battery)], ['Voltaje', fmt(n.voltage, 2, ' V')],
     ['Uso de canal', fmt(n.channel_util, 1, ' %')], ['Aire TX', fmt(n.air_util_tx, 2, ' %')],
     ['SNR', fmt(n.snr, 1, ' dB')], ['Saltos', n.hops_away ?? '--'],
@@ -1877,7 +1880,7 @@ function renderBars(status) {
   const imp = me && !me.offline ? me.impact : null;
   const p = me && posOf(me);
   document.getElementById('nameBox').textContent = me ? me.long_name : '--';
-  document.getElementById('chartNode').textContent = me ? me.long_name : 'el nodo';
+  if (!chartLora) document.getElementById('chartNode').textContent = me ? me.long_name : 'el nodo';
   const partes = [];
   partes.push(status.connected ? 'conectado' : 'desconectado');
   if (p) partes.push(`${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} ${p.live ? '(GPS actual)' : `(visto ${ago(p.position_time)})`}`);
@@ -2975,6 +2978,7 @@ loadConnection(true);
 // ---------------------------------------------------------------------------
 // Pestaña "Gráfica": aceleración en vivo (canvas, sin librerías)
 // ---------------------------------------------------------------------------
+var chartLora = false;          // la gráfica muestra el resumen por LoRa de un nodo de campo
 let chartTab = false, chartSecs = 60, chartData = null, chartHover = null, chartTableOn = false;
 const cvar = name => getComputedStyle(document.body).getPropertyValue(name).trim();
 const hhmmss = t => new Date(t * 1000).toLocaleTimeString('es-MX', { timeZone: TZ, hour: 'numeric', minute: '2-digit', second: '2-digit' });
@@ -3055,7 +3059,14 @@ async function loadChart() {
     chartData = await (await fetch(`/api/acel?segundos=${chartSecs}`)).json();
   } catch (e) { chartData = null; }
   const msg = document.getElementById('chartMsg');
+  const lr = chartData && chartData.lora && !(chartData.available && chartData.samples.length) ? chartData.lora : null;
+  chartLora = !!lr;
+  if (lr) document.getElementById('chartNode').textContent = lr.nodo;
+  document.getElementById('chartSub').textContent = lr ? '|a| en g, resumen por LoRa (mín y máx cada 4 min)'
+    : '|a| en g, en vivo (1 lectura por segundo)';
   msg.textContent = !chartData ? 'Sin respuesta del servidor.'
+    : lr ? `Aceleración de ${lr.nodo} por LoRa: cada barra es el mínimo y máximo de un intervalo (llega cada 4 min; ` +
+           `usa 15 min o 1 h).${lr.puntos.length ? '' : ' Aún no llega ninguno en esta ventana.'}`
     : !chartData.available ? 'El nodo no está enviando aceleración (¿desconectado o firmware sin detector?).'
     : !chartData.samples.length ? 'Esperando datos...' : '';
   drawChart();
@@ -3090,6 +3101,8 @@ function drawChart() {
   let ymax = 2;
   for (const s of S) ymax = Math.max(ymax, s[3]);
   for (const m of M) ymax = Math.max(ymax, m.peak_g);
+  const LR = chartData && chartData.lora && !(chartData.available && S.length) ? chartData.lora.puntos : [];
+  for (const p of LR) ymax = Math.max(ymax, p[2]);
   if (thr) ymax = Math.max(ymax, lastRest + thr);
   ymax *= 1.12;
   const yStep = niceStep(ymax, 5);
@@ -3104,7 +3117,7 @@ function drawChart() {
     ctx.beginPath(); ctx.moveTo(L, Y(g) + .5); ctx.lineTo(W - R, Y(g) + .5); ctx.stroke();
     ctx.fillText(`${+g.toFixed(1)} g`, L - 6, Y(g));
   }
-  const xStep = chartSecs <= 60 ? 10 : chartSecs <= 300 ? 60 : 180;
+  const xStep = chartSecs <= 60 ? 10 : chartSecs <= 300 ? 60 : chartSecs <= 900 ? 180 : 600;
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   for (let t = Math.ceil(t0 / xStep) * xStep; t <= t1; t += xStep) {
     ctx.fillText(hhmmss(t), X(t), H - B + 6);
@@ -3139,6 +3152,19 @@ function drawChart() {
     if (seg.length === 1) ctx.fillRect(X(seg[0][0]) - 1.5, Y(seg[0][3]), 3, Y(seg[0][2]) - Y(seg[0][3]));
   }
   ctx.globalAlpha = 1;
+  // Resumen por LoRa de un nodo de campo: barra mín-máx por intervalo, con marcas en los extremos
+  ctx.strokeStyle = blue; ctx.lineWidth = 3; ctx.lineCap = 'butt';
+  for (const p of LR) {
+    if (p[0] < t0) continue;
+    const x = X(p[0]);
+    ctx.beginPath(); ctx.moveTo(x, Y(p[2])); ctx.lineTo(x, Y(p[1])); ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x - 6, Y(p[2])); ctx.lineTo(x + 6, Y(p[2]));
+    ctx.moveTo(x - 6, Y(p[1])); ctx.lineTo(x + 6, Y(p[1])); ctx.stroke();
+    ctx.lineWidth = 3;
+    ctx.fillStyle = fg2; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.font = `11px ${mono}`;
+    ctx.fillText(`${p[2].toFixed(2)}`, Math.min(Math.max(x, L + 16), W - R - 16), Y(p[2]) - 4);
+  }
   // Línea de aceleración
   ctx.strokeStyle = blue; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   for (const seg of segs) {
