@@ -24,6 +24,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 17. Posición cada 4 min | 17 nov 2026 | Firmware sri3: RABANITO manda su GPS por el canal SRI; primera prueba al aire libre |
 | 18. Aceleración por LoRa | 17 nov 2026 | Firmware sri4: resumen mín/máx de aceleración y edad del GPS; gráfica de RABANITO con FARO de base |
 | 19. Base FARO y nodos de campo | 17 nov 2026 | Firmware sri5: identidad fija y temperatura en los mensajes; SRI junta todos los nodos de campo; protocolo para un nodo propio |
+| 20. Reporte cada 10 s | 17 nov 2026 | Firmware sri6 en RABANITO: reporte por LoRa cada 10 s (ajustable); SRI 0.6.6 |
 
 ---
 
@@ -280,6 +281,17 @@ llegó con RSSI -12 dBm). Para comparar alcance usar el SNR de los paquetes y la
   ahora usa la variante USB (`heltec_v4_companion_radio_usb_sri`): más estable y sin depender del Bluetooth.
   SRI, en modo USB automático, prueba cada puerto hasta encontrar el que responde como MeshCore (RABANITO cargando
   por USB no habla por el cable). Probado: SRI encontró a FARO en `/dev/ttyACM1` y recibió el reporte de RABANITO.
+
+## Etapa 20 - Reporte cada 10 s (17 nov)
+
+- Se pidió actualizar cada segundo. Cada reporte ocupa ~0.65 s de aire (101 bytes, SF8, BW 62.5 kHz): cada segundo
+  sería 65 % del canal, con choques entre reportes y alertas. Firmware **`v1.18.0-sri6`** en RABANITO: **cada 10 s**
+  (15 veces más seguido que antes; ~6.5 % del canal por nodo), ajustable con `reporte_s` (5-600 s) desde SRI.
+- Hallazgo: después de flashear, FARO recibía los reportes (23 paquetes, SNR 12.75) pero SRI los descartaba: los
+  comparaba por la hora del nodo y, al reiniciarse RABANITO, su reloj se atrasó. Ahora un reporte es nuevo si su
+  hora es **distinta** (no mayor) a la del anterior.
+- SRI 0.6.6: la ficha y la gráfica muestran el intervalo real (~10 s); con muchas barras se adelgazan y solo se
+  escribe el máximo de la ventana.
 
 ---
 

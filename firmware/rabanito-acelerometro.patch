@@ -1,8 +1,8 @@
 diff --git a/examples/companion_radio/MyMesh.cpp b/examples/companion_radio/MyMesh.cpp
-index f32ea67..551cb27 100644
+index f32ea67..5fa641f 100644
 --- a/examples/companion_radio/MyMesh.cpp
 +++ b/examples/companion_radio/MyMesh.cpp
-@@ -2431,6 +2431,154 @@ void MyMesh::loop() {
+@@ -2431,6 +2431,160 @@ void MyMesh::loop() {
      saveContacts();
      dirty_contacts_expiry = 0;
    }
@@ -78,7 +78,7 @@ index f32ea67..551cb27 100644
 +}
 +
 +// ---------------------------------------------------------------------------------------------
-+// SRI: cada 4 minutos el nodo manda su posición GPS por el canal privado "SRI" (no en el anuncio
++// SRI: cada 10 s (antes 4 min) el nodo manda su posición GPS por el canal privado "SRI" (no en el anuncio
 +// público), para que la base vea dónde va el senderista aunque no haya alerta:
 +//   SRI1 POS @25.662300,-100.422100 t1794705000 b3920 e3 a0.92/1.85 c23.7 id9a3737d
 +// (t = hora del nodo, b = batería en mV; desde sri4: e = segundos desde la última posición GPS válida,
@@ -88,20 +88,26 @@ index f32ea67..551cb27 100644
 +// Solo si hay canal "SRI" y el nodo tiene posición GPS o acelerómetro.
 +// Mientras se manda una alerta no se manda posición (la alerta ya lleva la posición).
 +// ---------------------------------------------------------------------------------------------
++// Intervalo del reporte: 10 s por defecto (sri6; antes 4 min). Cada reporte ocupa ~0.65 s de aire (SF8, BW 62.5),
++// así que 10 s es ~6.5 % del canal por nodo y deja lugar a las alertas y a más nodos de campo. Se puede cambiar
++// sin recompilar con la variable "reporte_s" del SensorManager (5 a 600 s; vuelve al valor por defecto al reiniciar).
 +#ifndef SRI_POS_INTERVALO_MS
-+#define SRI_POS_INTERVALO_MS (4UL * 60UL * 1000UL)
++#define SRI_POS_INTERVALO_MS (10UL * 1000UL)
 +#endif
 +void MyMesh::posicionSRI() {
 +  static unsigned long proxima = 0;
-+  if (proxima == 0) { proxima = futureMillis(60000); return; }   // la primera, 1 min después de encender
++  unsigned long intervalo = SRI_POS_INTERVALO_MS;
++  const char* iv = sensors.getSettingByKey("reporte_s");
++  if (iv != NULL && atol(iv) >= 5 && atol(iv) <= 600) intervalo = (unsigned long)atol(iv) * 1000UL;
++  if (proxima == 0) { proxima = futureMillis(intervalo); return; }  // el primero, un intervalo después de encender
 +  if (!millisHasNowPassed(proxima)) return;
 +
 +  const char* a = sensors.getSettingByKey("alerta");
 +  if (a != NULL && a[0] != 0 && strcmp(a, "-") != 0 && strcmp(a, "0") != 0) {
-+    proxima = futureMillis(30000);                    // hay una alerta saliendo: volver a intentar luego
++    proxima = futureMillis(intervalo < 30000 ? intervalo : 30000);   // hay una alerta saliendo: esperar
 +    return;
 +  }
-+  proxima = futureMillis(SRI_POS_INTERVALO_MS);
++  proxima = futureMillis(intervalo);
 +
 +  // Sin posición GPS y sin acelerómetro no hay nada que mandar (p. ej. FARO). Con acelerómetro se manda el
 +  // resumen aunque no haya GPS (posición 0,0, que SRI ignora); "e" dice qué tan vieja es la posición.
@@ -152,7 +158,7 @@ index f32ea67..551cb27 100644
 +    sensors.setSettingValue("resumen", "0");
 +    MESH_DEBUG_PRINTLN("SRI: posición enviada: %s", txt);
 +  } else {
-+    proxima = futureMillis(30000);
++    proxima = futureMillis(intervalo < 30000 ? intervalo : 30000);
 +  }
  }
  
@@ -287,14 +293,14 @@ index 76e8e71..fa1befd 100644
  extends = heltec_v4_oled
  build_flags =
 diff --git a/variants/t1000-e/platformio.ini b/variants/t1000-e/platformio.ini
-index 8456dc9..60ecd19 100644
+index 8456dc9..aba2b75 100644
 --- a/variants/t1000-e/platformio.ini
 +++ b/variants/t1000-e/platformio.ini
 @@ -73,6 +73,7 @@ extends = t1000-e
  board_build.ldscript = boards/nrf52840_s140_v7_extrafs.ld
  board_upload.maximum_size = 708608
  build_flags = ${t1000-e.build_flags}
-+  -D FIRMWARE_VERSION='"v1.18.0-sri5"'   ; MeshCore + detección de caídas (acelerómetro)
++  -D FIRMWARE_VERSION='"v1.18.0-sri6"'   ; MeshCore + detección de caídas (acelerómetro)
    -I examples/companion_radio/ui-orig
    -D MAX_CONTACTS=350
    -D MAX_GROUP_CHANNELS=40
@@ -302,13 +308,13 @@ index 8456dc9..60ecd19 100644
  board_build.ldscript = boards/nrf52840_s140_v7_extrafs.ld
  board_upload.maximum_size = 708608
  build_flags = ${t1000-e.build_flags}
-+  -D FIRMWARE_VERSION='"v1.18.0-sri5-ble"'   ; MeshCore + detección de caídas, por Bluetooth
++  -D FIRMWARE_VERSION='"v1.18.0-sri6-ble"'   ; MeshCore + detección de caídas, por Bluetooth
 +  -D BLE_NO_PIN                                  ; datos por Bluetooth sin PIN (Linux/BlueZ)
    -I examples/companion_radio/ui-orig
    -D MAX_CONTACTS=350
    -D MAX_GROUP_CHANNELS=40
 diff --git a/variants/t1000-e/target.cpp b/variants/t1000-e/target.cpp
-index 70a6435..4683ef4 100644
+index 70a6435..6347f64 100644
 --- a/variants/t1000-e/target.cpp
 +++ b/variants/t1000-e/target.cpp
 @@ -3,6 +3,8 @@
@@ -355,9 +361,9 @@ index 70a6435..4683ef4 100644
 +  if (Wire.endTransmission(false) != 0) return false;
 +  if (Wire.requestFrom((uint8_t)QMA_ADDR, n) != n) return false;
 +  for (uint8_t i = 0; i < n; i++) buf[i] = Wire.read();
-   return true;
- }
- 
++  return true;
++}
++
 +void T1000SensorManager::acc_begin() {
 +  digitalWrite(PIN_3V3_ACC_EN, HIGH);   // MeshCore deja apagada la alimentación del acelerómetro
 +  delay(10);
@@ -391,9 +397,9 @@ index 70a6435..4683ef4 100644
 +  }
 +  raw_n++;
 +  g = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
-+  return true;
-+}
-+
+   return true;
+ }
+ 
 +// Lectura del banco: edad 0 = lectura más reciente
 +#define HIST_AT(age) hist[(hist_pos - 1 - (age) + HIST_N) % HIST_N]
 +
@@ -501,7 +507,7 @@ index 70a6435..4683ef4 100644
    }
    return true;
  }
-@@ -123,29 +289,121 @@ void T1000SensorManager::loop() {
+@@ -123,29 +289,132 @@ void T1000SensorManager::loop() {
    static long next_gps_update = 0;
  
    _nmea->loop();
@@ -532,7 +538,8 @@ index 70a6435..4683ef4 100644
 +//   alerta       tipo|pico*100|dif*100|epoch|cuenta mientras falte mandarla por LoRa ("-" si no); escribir 0 la descarta
 +//   resumen      mín*100|máx*100 en g desde el último resumen | segundos desde la última posición GPS válida
 +//                (-1 = nunca) | temperatura*10 en °C. Lo usa la posición SRI por LoRa; escribir 0 reinicia el mín/máx
-+int T1000SensorManager::getNumSettings() const { return 8; }
++//   reporte_s    cada cuántos segundos se manda el reporte SRI por LoRa (5 a 600; 10 por defecto, se pierde al reiniciar)
++int T1000SensorManager::getNumSettings() const { return 9; }
  
  const char* T1000SensorManager::getSettingName(int i) const {
 -  return i == 0 ? "gps" : NULL;
@@ -545,6 +552,7 @@ index 70a6435..4683ef4 100644
 +    case 5: return "ultimo";
 +    case 6: return "alerta";
 +    case 7: return "resumen";
++    case 8: return "reporte_s";
 +  }
 +  return NULL;
  }
@@ -587,12 +595,21 @@ index 70a6435..4683ef4 100644
 +      else snprintf(vbuf[7], sizeof(vbuf[7]), "%d|%d|%ld|%ld", (int)(res_min * 100), (int)(res_max * 100), edad, t10);
 +      return vbuf[7];
 +    }
++    case 8:
++      snprintf(vbuf[8], sizeof(vbuf[8]), "%u", (unsigned)reporte_s);
++      return vbuf[8];
    }
    return NULL;
  }
  bool T1000SensorManager::setSettingValue(const char* name, const char* value) {
 +  if (strcmp(name, "impacto") == 0) {          // la interfaz borra la alarma con "impacto:0"
 +    if (strcmp(value, "0") == 0) impacto = false;
++    return true;
++  }
++  if (strcmp(name, "reporte_s") == 0) {
++    long v = atol(value);
++    if (v < 5 || v > 600) return false;
++    reporte_s = (uint16_t)v;
 +    return true;
 +  }
 +  if (strcmp(name, "resumen") == 0) {          // MyMesh ya mandó el resumen: empezar otro intervalo
@@ -628,10 +645,10 @@ index 70a6435..4683ef4 100644
      if (strcmp(value, "0") == 0) {
        stop_gps();
 diff --git a/variants/t1000-e/target.h b/variants/t1000-e/target.h
-index db003cc..cd61f47 100644
+index db003cc..3b676b2 100644
 --- a/variants/t1000-e/target.h
 +++ b/variants/t1000-e/target.h
-@@ -19,6 +19,46 @@ class T1000SensorManager: public SensorManager {
+@@ -19,6 +19,47 @@ class T1000SensorManager: public SensorManager {
    void start_gps();
    void sleep_gps();
    void stop_gps();
@@ -644,6 +661,7 @@ index db003cc..cd61f47 100644
 +  float acc_g = 0;                  // magnitud actual de la aceleración (g)
 +  mutable float acc_min = 99, acc_max = 0;  // mín/máx desde la última lectura de "acel" (para la gráfica)
 +  float res_min = 99, res_max = 0;  // mín/máx desde el último resumen mandado por LoRa (posición SRI)
++  uint16_t reporte_s = 10;          // intervalo del reporte SRI por LoRa, en s (lo lee MyMesh::posicionSRI)
 +  unsigned long gps_fix_ms = 0;     // millis() de la última posición GPS válida (0 = nunca)
 +  // Calibración por eje (6 caras): a_cal = (a_crudo - offset) / ganancia. La envía la interfaz.
 +  float cal_off[3] = {0, 0, 0};
@@ -669,7 +687,7 @@ index db003cc..cd61f47 100644
 +  uint32_t ult_epoch = 0;
 +  unsigned long next_acc_ms = 0;
 +  unsigned long next_acc_retry_ms = 0;
-+  mutable char vbuf[8][64];         // textos de las "custom vars"
++  mutable char vbuf[9][64];         // textos de las "custom vars"
 +
 +  void acc_evaluar(unsigned long now);
 +  void acc_begin();

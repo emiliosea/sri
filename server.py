@@ -869,6 +869,21 @@ def api_impact_threshold():
     return jsonify(source.impact_cmd("umbral_g", f"{g:.2f}"))
 
 
+@app.route("/api/reporte", methods=["POST"])
+def api_reporte():
+    """Cada cuántos segundos manda su reporte por LoRa el nodo de campo conectado (firmware sri6). {"s": 10}"""
+    from flask import request
+    if not hasattr(source, "impact_cmd"):
+        return jsonify({"ok": False, "error": "Solo disponible con MeshCore"}), 400
+    try:
+        s = int((request.get_json(silent=True) or {}).get("s"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Intervalo no válido"}), 400
+    if not 5 <= s <= 600:
+        return jsonify({"ok": False, "error": "El intervalo debe estar entre 5 y 600 s"}), 400
+    return jsonify(source.impact_cmd("reporte_s", str(s)))
+
+
 @app.route("/api/gps", methods=["POST"])
 def api_gps():
     """Enciende o apaga el GPS del nodo: {"encendido": true|false}. El nodo guarda el ajuste."""

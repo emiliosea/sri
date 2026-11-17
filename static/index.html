@@ -477,6 +477,14 @@
         </div>
         <div class="rlabel">Umbral (pico - reposo)</div>
       </div>
+      <div class="rgroup" id="grupoReporte" style="display:none">
+        <div class="ritems">
+          <span class="sub" title="Solo para un nodo de campo conectado directo a esta PC (firmware sri6)">cada</span>
+          <input id="repSeg" type="number" step="1" min="5" max="600" style="width:4.5em"><span class="sub">s</span>
+          <button class="cbtn" id="repGuardar">Guardar</button>
+        </div>
+        <div class="rlabel">Reporte por LoRa</div>
+      </div>
     </div>
     <div class="rgroup">
       <div class="ritems"><button class="cbtn" id="calibOpen">Calibrar acelerómetro</button><span class="sub" id="calibSummary"></span></div>
@@ -1300,10 +1308,10 @@ function renderDetail() {
     ['Último escuchado', ago(n.last_heard)],
     ['Posición', dp ? (dp.live ? 'Actual' : 'Última conocida (GPS sin señal)') : 'Sin GPS'],
     ['Posición tomada', dp ? `${ago(dp.position_time)} | ${fullTime(dp.position_time)}` : '--'],
-    ...(n.pos_via === 'lora' ? [['Posición llega', 'por LoRa, canal SRI (cada 4 min)' +
+    ...(n.pos_via === 'lora' ? [['Posición llega', `por LoRa, canal SRI${n.reporte_iv ? ` (cada ~${n.reporte_iv} s)` : ''}` +
         (n.pos_edad > 60 ? ` | GPS sin señal: posición de hace ${Math.round(n.pos_edad / 60)} min` : '')]] : []),
     ...(n.acel_red ? [['Aceleración (LoRa)', `mín ${n.acel_red.min.toFixed(2)} g, máx ${n.acel_red.max.toFixed(2)} g ` +
-        `entre ${hhmmss(n.acel_red.time - 240)} y ${hhmmss(n.acel_red.time)}`]] : []),
+        (n.reporte_iv ? `entre ${hhmmss(n.acel_red.time - n.reporte_iv)} y ${hhmmss(n.acel_red.time)}` : `a las ${hhmmss(n.acel_red.time)}`)]] : []),
     ['Batería', batteryText(n.battery)], ['Voltaje', fmt(n.voltage, 2, ' V')],
     ['Uso de canal', fmt(n.channel_util, 1, ' %')], ['Aire TX', fmt(n.air_util_tx, 2, ' %')],
     ['SNR', fmt(n.snr, 1, ' dB')], ['Saltos', n.hops_away ?? '--'],
@@ -1543,6 +1551,10 @@ function renderDetector(status) {
   const foco = document.getElementById('detFoco'), est = document.getElementById('detEstado');
   const det = document.getElementById('detDetalle'), ctrl = document.getElementById('detCtrl');
   const umbral = document.getElementById('detUmbral');
+  // Intervalo del reporte por LoRa: solo si el nodo conectado es un nodo de campo con firmware sri6
+  const rep = document.getElementById('repSeg'), tieneRep = !!(imp && imp.reporte_s);
+  document.getElementById('grupoReporte').style.display = tieneRep ? '' : 'none';
+  if (tieneRep && document.activeElement !== rep) rep.value = imp.reporte_s;
   foco.className = 'foco ' + (!imp || !imp.available || !imp.sensor_ok ? 'na' : imp.active ? 'on' : '');
   box.classList.toggle('alarma', !!(imp && imp.active));
   box.closest('.card').classList.toggle('alarma', !!(imp && imp.active));
@@ -1634,6 +1646,8 @@ async function detPost(url, body) {
   poll();
 }
 document.getElementById('detReset').onclick = () => detPost('/api/impacto/reset');
+document.getElementById('repGuardar').onclick = () =>
+  detPost('/api/reporte', { s: parseInt(document.getElementById('repSeg').value, 10) });
 document.getElementById('detGuardar').onclick = () =>
   detPost('/api/impacto/umbral', { g: parseFloat(document.getElementById('detUmbral').value) });
 
@@ -3072,11 +3086,13 @@ async function loadChart() {
   const lr = chartLoraSerie();
   chartLora = !!lr;
   if (lr) document.getElementById('chartNode').textContent = lr.nodo;
-  document.getElementById('chartSub').textContent = lr ? '|a| en g, resumen por LoRa (mín y máx cada 4 min)'
+  const ivs = lr ? lr.puntos.slice(1).map((p, i) => p[0] - lr.puntos[i][0]).sort((a, b) => a - b) : [];
+  const iv = ivs.length ? ivs[Math.floor(ivs.length / 2)] : null;          // mediana entre reportes
+  document.getElementById('chartSub').textContent = lr ? `|a| en g, resumen por LoRa (mín y máx de cada reporte${iv ? `, cada ~${iv} s` : ''})`
     : '|a| en g, en vivo (1 lectura por segundo)';
   msg.textContent = !chartData ? 'Sin respuesta del servidor.'
-    : lr ? `Aceleración de ${lr.nodo} por LoRa: cada barra es el mínimo y máximo de un intervalo (llega cada 4 min; ` +
-           `usa 15 min o 1 h).${lr.puntos.length ? '' : ' Aún no llega ninguno en esta ventana.'}`
+    : lr ? `Aceleración de ${lr.nodo} por LoRa: cada barra es el mínimo y máximo entre dos reportes.` +
+           `${lr.puntos.length ? '' : ' Aún no llega ninguno en esta ventana.'}`
     : !chartData.available ? 'El nodo no está enviando aceleración (¿desconectado o firmware sin detector?).'
     : !chartData.samples.length ? 'Esperando datos...' : '';
   drawChart();
@@ -3163,17 +3179,28 @@ function drawChart() {
   }
   ctx.globalAlpha = 1;
   // Resumen por LoRa de un nodo de campo: barra mín-máx por intervalo, con marcas en los extremos
-  ctx.strokeStyle = blue; ctx.lineWidth = 3; ctx.lineCap = 'butt';
-  for (const p of LR) {
-    if (p[0] < t0) continue;
+  // (con reportes seguidos las barras se adelgazan; el valor solo se escribe si hay espacio)
+  const visibles = LR.filter(p => p[0] >= t0);
+  const paso = visibles.length > 1 ? (X(visibles[visibles.length - 1][0]) - X(visibles[0][0])) / (visibles.length - 1) : 99;
+  const ancho = Math.max(1.5, Math.min(3, paso / 3)), tapa = Math.max(1.5, Math.min(6, paso / 2.5));
+  ctx.strokeStyle = blue; ctx.lineCap = 'butt';
+  for (const p of visibles) {
     const x = X(p[0]);
+    ctx.lineWidth = ancho;
     ctx.beginPath(); ctx.moveTo(x, Y(p[2])); ctx.lineTo(x, Y(p[1])); ctx.stroke();
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(x - 6, Y(p[2])); ctx.lineTo(x + 6, Y(p[2]));
-    ctx.moveTo(x - 6, Y(p[1])); ctx.lineTo(x + 6, Y(p[1])); ctx.stroke();
-    ctx.lineWidth = 3;
+    ctx.lineWidth = Math.min(2, ancho);
+    ctx.beginPath(); ctx.moveTo(x - tapa, Y(p[2])); ctx.lineTo(x + tapa, Y(p[2]));
+    ctx.moveTo(x - tapa, Y(p[1])); ctx.lineTo(x + tapa, Y(p[1])); ctx.stroke();
+    if (paso >= 34) {
+      ctx.fillStyle = fg2; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.font = `11px ${mono}`;
+      ctx.fillText(`${p[2].toFixed(2)}`, Math.min(Math.max(x, L + 16), W - R - 16), Y(p[2]) - 4);
+    }
+  }
+  // sin espacio para todos: marcar solo el máximo de la ventana
+  if (paso < 34 && visibles.length) {
+    const top = visibles.reduce((a, b) => (b[2] > a[2] ? b : a));
     ctx.fillStyle = fg2; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.font = `11px ${mono}`;
-    ctx.fillText(`${p[2].toFixed(2)}`, Math.min(Math.max(x, L + 16), W - R - 16), Y(p[2]) - 4);
+    ctx.fillText(`máx ${top[2].toFixed(2)}`, Math.min(Math.max(X(top[0]), L + 30), W - R - 30), Y(top[2]) - 4);
   }
   // Línea de aceleración
   ctx.strokeStyle = blue; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';

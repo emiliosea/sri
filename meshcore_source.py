@@ -270,6 +270,7 @@ class MeshCoreSource:
         imp = {"available": True, "sensor_ok": info != "sin_sensor", "active": v.get("impacto") == "1",
                "accel_g": cur,
                "threshold_g": float(v.get("umbral_g") or 0) or None,
+               "reporte_s": int(v["reporte_s"]) if str(v.get("reporte_s", "")).isdigit() else None,
                "type": None, "peak_g": None, "time": None, "count": 0}
         parts = info.split("|")
         if len(parts) >= 4:      # tipo|pico|epoch|cuenta[|dif|reposo]
@@ -356,8 +357,14 @@ class MeshCoreSource:
             clave = pos.get("id") or pos["nombre"]            # identidad fija si el firmware la manda (sri5)
             with self._lock:
                 prev = self._pos_red.get(clave)
-                nueva = prev is None or pos["epoch"] > prev["epoch"]
-                if prev is None or pos["epoch"] >= prev["epoch"]:
+                # Nuevo = distinta hora del nodo que el anterior (no "mayor"): al reiniciar, el reloj del nodo
+                # se atrasa y sus reportes parecerían viejos. La misma hora = el mismo mensaje repetido.
+                nueva = prev is None or pos["epoch"] != prev["epoch"]
+                if prev is not None and nueva:                     # cada cuánto llegan sus reportes (aprox.)
+                    pos["intervalo"] = max(1, pos["recibido"] - prev["recibido"])
+                elif prev is not None:
+                    pos["intervalo"] = prev.get("intervalo")
+                if nueva:
                     self._pos_red[clave] = pos
                 if nueva and pos.get("amax") is not None:
                     h = self._acel_red.setdefault(clave, collections.deque(maxlen=200))
@@ -645,6 +652,7 @@ class MeshCoreSource:
                      "snr": None, "hops_away": None, "last_heard": None}
                 out.append(n)
             n["campo"] = True                                  # nodo de campo: sus datos llegan por el canal SRI
+            n["reporte_iv"] = pos.get("intervalo")
             n["last_heard"] = max(n.get("last_heard") or 0, pos["recibido"])
             if pos.get("amax") is not None:
                 n["acel_red"] = {"min": pos["amin"], "max": pos["amax"], "time": pos["recibido"]}
