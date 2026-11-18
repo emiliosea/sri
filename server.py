@@ -125,6 +125,11 @@ class LastSeen:
             if self._data.pop(num, None) is not None:
                 self._save()
 
+    def nombre(self, num):
+        """Último nombre guardado de un nodo (o None)."""
+        with self._lock:
+            return (self._data.get(num) or {}).get("long_name")
+
     def missing(self, nodes):
         """Nodos guardados que no están en la lista actual (p. ej. el nodo está desconectado).
 
@@ -710,6 +715,13 @@ def index():
 @app.route("/api/nodes")
 def api_nodes():
     nodes = source.nodes()
+    # Un nodo de campo cuyo primer reporte llegó en binario (sin nombre) aparece como "Nodo <id>" hasta su reporte
+    # en texto; si ya se conocía (guardado con el número de su llave), se usa su nombre desde el principio.
+    for n in nodes:
+        if n.get("campo") and str(n.get("long_name", "")).startswith("Nodo "):
+            nombre = last_seen.nombre(n.get("num"))
+            if nombre and not nombre.startswith("Nodo "):
+                n["long_name"], n["short_name"] = nombre, nombre[:4].upper()
     # Última posición guardada de los nodos que no están ahora. Sin repetir nombres: un nodo de campo con firmware
     # anterior a sri5 se guardaba con un número sacado del nombre; se queda solo el registro más reciente.
     nombres = {n.get("long_name") for n in nodes}
@@ -942,7 +954,11 @@ def api_accel():
         secs = 60
     if not hasattr(source, "accel_history"):
         return jsonify({"samples": [], "moves": [], "threshold_g": None, "available": False})
-    return jsonify(source.accel_history(secs))
+    h = source.accel_history(secs)
+    for serie in h.get("lora_todos") or []:            # mismo nombre que en la lista de nodos (ver api_nodes)
+        if str(serie.get("nodo", "")).startswith("Nodo "):
+            serie["nodo"] = last_seen.nombre(serie.get("num")) or serie["nodo"]
+    return jsonify(h)
 
 
 # ---------------------------------------------------------------------------

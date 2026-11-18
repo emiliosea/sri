@@ -311,6 +311,9 @@ llegó con RSSI -12 dBm). Para comparar alcance usar el SNR de los paquetes y la
   movimiento, 30 s quieto) y **compacto** (binario de 25 bytes, ~0.3 s de aire; uno en texto cada 60 s con el
   nombre). Probado con paquetes simulados. Para cargarlo: conectar RABANITO por USB y
   `../.venv-pio/bin/pio run -e t1000e_companion_radio_ble -t upload --upload-port /dev/ttyACMn` (en `firmware/MeshCore`).
+- **sri7 cargado en RABANITO (18 nov, 00:22)** y probado con SRI 0.6.7 conectado a FARO: en movimiento llegan
+  reportes **cada 3 s**, quieto **cada 30 s**; el primero en texto (con nombre) a los 60 s. Corrección: antes del
+  primer texto el nodo salía como "Nodo d9a3737d" junto al RABANITO guardado; ahora toma el nombre guardado.
 - Opción descartada por ahora: radio más rápido (SF7 / 125 kHz, 0.18 s por reporte) a cambio de ~7 dB (la mitad del
   alcance); revisar después de la prueba de alcance.
 
