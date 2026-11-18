@@ -1308,6 +1308,7 @@ function renderDetail() {
     ['Último escuchado', ago(n.last_heard)],
     ['Posición', dp ? (dp.live ? 'Actual' : 'Última conocida (GPS sin señal)') : 'Sin GPS'],
     ['Posición tomada', dp ? `${ago(dp.position_time)} | ${fullTime(dp.position_time)}` : '--'],
+    ...(n.moviendo != null ? [['Movimiento', n.moviendo ? 'en movimiento (reporta cada ~3 s)' : 'quieto (reporta cada ~30 s)']] : []),
     ...(n.pos_via === 'lora' ? [['Posición llega', `por LoRa, canal SRI${n.reporte_iv ? ` (cada ~${n.reporte_iv} s)` : ''}` +
         (n.pos_edad > 60 ? ` | GPS sin señal: posición de hace ${Math.round(n.pos_edad / 60)} min` : '')]] : []),
     ...(n.acel_red ? [['Aceleración (LoRa)', `mín ${n.acel_red.min.toFixed(2)} g, máx ${n.acel_red.max.toFixed(2)} g ` +
@@ -3265,6 +3266,15 @@ function renderChartTable() {
 
 poll();
 setInterval(poll, POLL_MS);
+// En vivo: el servidor avisa en cuanto llega un reporte o alerta por LoRa (la consulta cada 3 s queda de respaldo)
+if (window.EventSource) {
+  let enVivoT = null;
+  const enVivo = new EventSource('/api/en-vivo');
+  enVivo.onmessage = () => {
+    clearTimeout(enVivoT);
+    enVivoT = setTimeout(() => { poll(); if (chartTab) loadChart(); }, 100);
+  };
+}
 </script>
 </body>
 </html>

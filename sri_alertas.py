@@ -46,6 +46,29 @@ def leer_pos(texto):
             "id": d["id"].lower() if d["id"] else None}
 
 
+DATA_TYPE_SRI = 0xFF53     # datagrama binario del reporte (firmware sri7; rango de pruebas de MeshCore)
+
+
+def leer_binario(data_type, hexa):
+    """Reporte binario compacto (sri7, 25 bytes) -> dict como leer_pos (sin nombre ni hora del nodo), o None."""
+    if data_type != DATA_TYPE_SRI:
+        return None
+    try:
+        b = bytes.fromhex(hexa or "")
+    except ValueError:
+        return None
+    if len(b) < 25 or b[0] != 1:
+        return None
+    i32 = lambda o: int.from_bytes(b[o:o + 4], "little", signed=True)  # noqa: E731
+    u16 = lambda o: int.from_bytes(b[o:o + 2], "little")               # noqa: E731
+    edad, amin, amax = u16(15), u16(17), u16(19)
+    temp = int.from_bytes(b[21:23], "little", signed=True)
+    return {"id": b[1:5].hex(), "lat": i32(5) / 1e6, "lon": i32(9) / 1e6, "mv": u16(13) or None,
+            "edad": -1 if edad == 0xFFFF else edad,
+            "amin": None if amin == 0xFFFF else amin / 100, "amax": None if amax == 0xFFFF else amax / 100,
+            "temp": None if temp == -0x8000 else temp / 10, "moviendo": bool(b[23] & 1), "seq": b[24]}
+
+
 def num_campo(nombre, ident=None):
     """Número de un nodo de campo que llega por LoRa: el de su llave (igual que si estuviera conectado o en los
     contactos) cuando el mensaje trae su identidad (sri5); si no, uno sacado del nombre (firmware anterior)."""

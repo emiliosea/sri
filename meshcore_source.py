@@ -81,6 +81,8 @@ class MeshCoreSource:
         self._pos_rx = None         # cuándo llegó la última posición GPS válida
         self._impact = None         # estado del detector de caídas (firmware v1.18.0-rabanito)
         self._puerto_ok = None      # último puerto USB donde respondió un nodo MeshCore (autodetección)
+        self._nombre_id = {}        # identidad (8 hex) -> nombre del nodo de campo (de su reporte en texto)
+        self.on_cambio = None       # se llama al llegar datos nuevos (para la página en vivo)
         self._pos_red = {}          # nombre -> última posición recibida por el canal "SRI" (firmware sri3)
         self._acel_red = {}         # nombre -> deque [[hora, mín g, máx g], ...] (resumen sri4 cada 4 min)
         self.on_impact = None       # función del servidor que se llama con cada evento nuevo
@@ -204,6 +206,7 @@ class MeshCoreSource:
                     from meshcore import EventType
                     self.mc.subscribe(EventType.NEW_CONTACT, self._nodo_escuchado)
                     self.mc.subscribe(EventType.CHANNEL_MSG_RECV, self._mensaje_canal)
+                    self.mc.subscribe(EventType.CHANNEL_DATA_RECV, self._datos_canal)
                     await self.mc.start_auto_message_fetching()     # bajar los mensajes que llegan por LoRa
                     self._canal_sri = "?"
                     if self.calibration:   # la calibración vive en la RAM del nodo: reenviarla
@@ -353,26 +356,7 @@ class MeshCoreSource:
         p = ev.payload or {}
         pos = sri_alertas.leer_pos(p.get("text", ""))
         if pos:
-            pos["saltos"], pos["recibido"] = p.get("path_len"), int(time.time())
-            clave = pos.get("id") or pos["nombre"]            # identidad fija si el firmware la manda (sri5)
-            with self._lock:
-                prev = self._pos_red.get(clave)
-                # Nuevo = distinta hora del nodo que el anterior (no "mayor"): al reiniciar, el reloj del nodo
-                # se atrasa y sus reportes parecerían viejos. La misma hora = el mismo mensaje repetido.
-                nueva = prev is None or pos["epoch"] != prev["epoch"]
-                if prev is not None and nueva:                     # cada cuánto llegan sus reportes (aprox.)
-                    pos["intervalo"] = max(1, pos["recibido"] - prev["recibido"])
-                elif prev is not None:
-                    pos["intervalo"] = prev.get("intervalo")
-                if nueva:
-                    self._pos_red[clave] = pos
-                if nueva and pos.get("amax") is not None:
-                    h = self._acel_red.setdefault(clave, collections.deque(maxlen=200))
-                    h.append([pos["recibido"], pos["amin"], pos["amax"]])   # hora de la PC: el reloj del
-                                                                             # nodo puede estar mal (sin GPS)
-            if nueva:
-                print(f"Posición por LoRa de {pos['nombre']}: {pos['lat']:.6f}, {pos['lon']:.6f}"
-                      f" (GPS de hace {pos['edad']} s, acel {pos['amin']}-{pos['amax']} g)", flush=True)
+            self._registrar_reporte(pos, p.get("path_len"))
             return
         a = sri_alertas.leer(p.get("text", ""))
         if a and self.on_alerta_red:
@@ -381,6 +365,56 @@ class MeshCoreSource:
                 self.on_alerta_red(a)
             except Exception as e:  # noqa: BLE001
                 print("Error al registrar alerta SRI:", e, flush=True)
+            self._avisar()
+
+    async def _datos_canal(self, ev):
+        """Datagramas binarios del canal: el reporte compacto de los nodos de campo (firmware sri7)."""
+        import sri_alertas
+        p = ev.payload or {}
+        pos = sri_alertas.leer_binario(p.get("data_type"), p.get("payload"))
+        if not pos:
+            return
+        with self._lock:
+            pos["nombre"] = self._nombre_id.get(pos["id"]) or f"Nodo {pos['id']}"
+        pos["epoch"] = -1 - pos["seq"]          # sin hora del nodo: el número de reporte sirve para no repetir
+        self._registrar_reporte(pos, p.get("path_len"), binario=True)
+
+    def _avisar(self):
+        """Avisa a la página (en vivo) que llegaron datos nuevos."""
+        if self.on_cambio:
+            try:
+                self.on_cambio()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _registrar_reporte(self, pos, saltos, binario=False):
+        """Guarda un reporte de un nodo de campo (texto o binario) y avisa a la página."""
+        pos["saltos"], pos["recibido"] = saltos, int(time.time())
+        clave = pos.get("id") or pos["nombre"]                # identidad fija si el firmware la manda (sri5)
+        with self._lock:
+            if pos.get("id") and not binario:                 # el texto trae el nombre: recordarlo para el binario
+                self._nombre_id[pos["id"]] = pos["nombre"]
+            prev = self._pos_red.get(clave)
+            if binario and prev is not None:
+                pos["nombre"] = prev["nombre"]
+            # Nuevo = distinta "hora" que el anterior (no "mayor"): al reiniciar, el reloj del nodo se atrasa y
+            # sus reportes parecerían viejos. La misma hora (o el mismo número de reporte) = mensaje repetido.
+            nueva = prev is None or pos["epoch"] != prev["epoch"]
+            if prev is not None and nueva:                    # cada cuánto llegan sus reportes (aprox.)
+                pos["intervalo"] = max(1, pos["recibido"] - prev["recibido"])
+            elif prev is not None:
+                pos["intervalo"] = prev.get("intervalo")
+            if nueva:
+                self._pos_red[clave] = pos
+            if nueva and pos.get("amax") is not None:
+                h = self._acel_red.setdefault(clave, collections.deque(maxlen=1500))   # ~1 h a 3 s
+                h.append([pos["recibido"], pos["amin"], pos["amax"]])   # hora de la PC (el reloj del nodo
+                                                                         # puede estar mal sin GPS)
+        if nueva:
+            if not binario:
+                print(f"Reporte por LoRa de {pos['nombre']}: {pos['lat']:.6f}, {pos['lon']:.6f}"
+                      f" (GPS de hace {pos['edad']} s, acel {pos['amin']}-{pos['amax']} g)", flush=True)
+            self._avisar()
 
     async def _buscar_canal_sri(self):
         """Índice del canal "SRI" en el nodo, y el primer lugar libre (para crearlo)."""
@@ -653,6 +687,8 @@ class MeshCoreSource:
                 out.append(n)
             n["campo"] = True                                  # nodo de campo: sus datos llegan por el canal SRI
             n["reporte_iv"] = pos.get("intervalo")
+            if "moviendo" in pos:
+                n["moviendo"] = pos["moviendo"]
             n["last_heard"] = max(n.get("last_heard") or 0, pos["recibido"])
             if pos.get("amax") is not None:
                 n["acel_red"] = {"min": pos["amin"], "max": pos["amax"], "time": pos["recibido"]}

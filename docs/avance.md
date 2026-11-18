@@ -25,6 +25,7 @@ Bitácora por etapas del desarrollo del Sistema de Respuesta Inmediata (SRI) con
 | 18. Aceleración por LoRa | 17 nov 2026 | Firmware sri4: resumen mín/máx de aceleración y edad del GPS; gráfica de RABANITO con FARO de base |
 | 19. Base FARO y nodos de campo | 17 nov 2026 | Firmware sri5: identidad fija y temperatura en los mensajes; SRI junta todos los nodos de campo; protocolo para un nodo propio |
 | 20. Reporte cada 10 s | 17 nov 2026 | Firmware sri6 en RABANITO: reporte por LoRa cada 10 s (ajustable); SRI 0.6.6 |
+| 21. Actualización más rápida | 18 nov 2026 | sri7: reporte binario compacto y adaptativo (3 s en movimiento); SRI 0.6.7 en vivo |
 
 ---
 
@@ -292,6 +293,26 @@ llegó con RSSI -12 dBm). Para comparar alcance usar el SNR de los paquetes y la
   hora es **distinta** (no mayor) a la del anterior.
 - SRI 0.6.6: la ficha y la gráfica muestran el intervalo real (~10 s); con muchas barras se adelgazan y solo se
   escribe el máximo de la ventana.
+
+## Etapa 21 - Actualización más rápida en SRI (18 nov)
+
+- **Caminata con el equipo (17 nov, ~23:50-00:11), firmware sri6 cada 10 s, SRI 0.6.6 con FARO por USB:** SRI siguió
+  a RABANITO con GPS en vivo; la última posición recibida fue 25.662003, -100.421260 a las 23:59:08, **~130 m al
+  este de FARO** (FARO bajo techo, junto a la PC). Al final los reportes llegaban cada ~170 s en vez de 10 s (señal
+  al límite) y después ninguno: fuera de alcance. **De regreso volvió a recibirse a 252 m** (00:15:18, 25.660788,
+  -100.420360) y siguió a 234, 221, 171, 161, 118, 107 y 96 m hasta las 00:17 (bitácora cada 15 s, 0 saltos,
+  batería 95-99 %). Alcance confirmado con FARO bajo techo y edificios de por medio: **~250 m**; en algún punto
+  entre 126 m y 252 m (a la ida) se perdió, probablemente por obstáculos. Pendiente: medir con FARO en alto o en
+  una ventana.
+- Demora de lo que se ve en SRI: hasta 10 s del intervalo del nodo + hasta 3 s de la consulta de la página.
+- **SRI 0.6.7:** la página se actualiza en cuanto llega un dato (`/api/en-vivo`, Server-Sent Events); lee el reporte
+  binario y muestra si el nodo está en movimiento.
+- **Firmware `v1.18.0-sri7` (listo, sin cargar; RABANITO estaba afuera):** reporte **adaptativo** (cada 3 s en
+  movimiento, 30 s quieto) y **compacto** (binario de 25 bytes, ~0.3 s de aire; uno en texto cada 60 s con el
+  nombre). Probado con paquetes simulados. Para cargarlo: conectar RABANITO por USB y
+  `../.venv-pio/bin/pio run -e t1000e_companion_radio_ble -t upload --upload-port /dev/ttyACMn` (en `firmware/MeshCore`).
+- Opción descartada por ahora: radio más rápido (SF7 / 125 kHz, 0.18 s por reporte) a cambio de ~7 dB (la mitad del
+  alcance); revisar después de la prueba de alcance.
 
 ---
 

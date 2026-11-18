@@ -108,8 +108,10 @@ nodos (botón **Configurar canal SRI en este nodo** de esta hoja), un nodo de ca
 radio a la base. En SRI aparece un recuadro rojo **"[!] CAÍDA EN nodo (por LoRa)"** en la tarjeta del detector (con
 diferencia, pico, hora, posición y cuántos de los 3 envíos llegaron), suena la alarma, el nodo se pone rojo en el
 mapa y se traza la ruta hacia él. Se guarda en Eventos con el nombre del nodo y se borra con **Borrar alerta**. Con el firmware `v1.18.0-sri3`, cada nodo de campo con GPS manda también su
-**posición cada 10 s** (sri6; antes cada 4 minutos) por el mismo canal: el nodo se mueve en el mapa aunque no haya alerta, y su ficha dice
-"Posición llega: por LoRa, canal SRI (cada ~10 s)" con la batería que reportó. Con `v1.18.0-sri4` llega también un **resumen de aceleración**: si la base
+**reporte adaptativo** (sri7: cada 3 s en movimiento, 30 s quieto; sri6: cada 10 s) por el mismo canal: el nodo se mueve en el mapa aunque no haya alerta, y su ficha dice
+"Posición llega: por LoRa, canal SRI (cada ~N s)" y "Movimiento: en movimiento / quieto", con la batería que
+reportó. La página se actualiza **en cuanto llega** un reporte o una alerta (el servidor le avisa por
+`/api/en-vivo`, Server-Sent Events); la consulta cada 3 s queda de respaldo. Con `v1.18.0-sri4` llega también un **resumen de aceleración**: si la base
 no tiene acelerómetro (FARO), la hoja **Gráfica** muestra "Aceleración de RABANITO, resumen por LoRa", con una
 barra del mínimo al máximo entre dos reportes (si no caben, se adelgazan y solo se escribe el máximo); la ficha del nodo dice el
 último mín/máx y avisa si el GPS no tiene señal ("posición de hace N min"). En modo demo el nodo 1 hace de base y

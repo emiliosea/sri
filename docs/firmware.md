@@ -1,7 +1,7 @@
 # Firmware del nodo (MeshCore modificado)
 
-RABANITO usa **MeshCore v1.18.0** (commit `81dbae5`) con cambios propios, versión **`v1.18.0-sri6`** (FARO, la base, usa `sri5`)
-(antes `v1.18.0-rabanito`; la sri2 agrega las **alertas por LoRa** la sri3 la **posición cada 4 minutos** la sri4 el **resumen de aceleración** la sri5 la **identidad fija y la temperatura** del nodo de campo y la sri6 el **reporte cada 10 s**).
+RABANITO usa **MeshCore v1.18.0** (commit `81dbae5`) con cambios propios, versión **`v1.18.0-sri7`** (FARO, la base, usa `sri5`)
+(antes `v1.18.0-rabanito`; la sri2 agrega las **alertas por LoRa** la sri3 la **posición cada 4 minutos** la sri4 el **resumen de aceleración** la sri5 la **identidad fija y la temperatura** del nodo de campo la sri6 el **reporte cada 10 s** y la sri7 el **reporte adaptativo y compacto**).
 Los cambios están en [`firmware/rabanito-acelerometro.patch`](../firmware/rabanito-acelerometro.patch).
 
 ## Qué cambia respecto al MeshCore oficial
@@ -13,7 +13,7 @@ Los cambios están en [`firmware/rabanito-acelerometro.patch`](../firmware/raban
 | `src/helpers/nrf52/SerialBLEInterface.cpp` | Opción `BLE_NO_PIN`: canal de datos Bluetooth sin PIN (la actualización DFU por Bluetooth sigue con PIN) |
 | `src/helpers/esp32/SerialBLEInterface.cpp` | La misma opción `BLE_NO_PIN` para placas ESP32 (FARO, Heltec V4) |
 | `variants/heltec_v4/platformio.ini` | Objetivos `heltec_v4_companion_radio_usb_sri` (FARO, base por USB, `v1.18.0-sri5`) y `heltec_v4_companion_radio_ble_sri` (por Bluetooth, `v1.18.0-sri5-ble`, con `BLE_NO_PIN`) |
-| `variants/t1000-e/platformio.ini` | Versión `v1.18.0-sri6` (USB) y `v1.18.0-sri6-ble` (Bluetooth, con `BLE_NO_PIN`) |
+| `variants/t1000-e/platformio.ini` | Versión `v1.18.0-sri7` (USB) y `v1.18.0-sri7-ble` (Bluetooth, con `BLE_NO_PIN`) |
 | `examples/companion_radio/MyMesh.cpp/.h` | `alertaSRI()`: manda la caída/golpe por el canal de grupo "SRI" (ver abajo) |
 
 El algoritmo se explica en [detector-de-caidas.md](detector-de-caidas.md).
@@ -22,8 +22,8 @@ El algoritmo se explica en [detector-de-caidas.md](detector-de-caidas.md).
 
 | Archivo | Uso |
 |---|---|
-| `firmware/RABANITO-meshcore-v1.18.0-sri6-ble.uf2` | **Bluetooth** (el de RABANITO y los nodos de campo). El USB solo carga. |
-| `firmware/RABANITO-meshcore-v1.18.0-sri6.uf2` | **USB** (datos por cable, sin Bluetooth) |
+| `firmware/RABANITO-meshcore-v1.18.0-sri7-ble.uf2` | **Bluetooth** (el de RABANITO y los nodos de campo). El USB solo carga. |
+| `firmware/RABANITO-meshcore-v1.18.0-sri7.uf2` | **USB** (datos por cable, sin Bluetooth) |
 | `firmware/FARO-heltec-v4-meshcore-v1.18.0-sri5-usb.bin` | **FARO** (Heltec V4, ESP32-S3), la base: imagen completa por **USB**, se carga en la dirección 0x0 |
 
 ## Flashear
@@ -61,7 +61,7 @@ cd .. && uv venv -q .venv-pio && uv pip install -q -p .venv-pio platformio
 cd MeshCore
 ../.venv-pio/bin/pio run -e t1000e_companion_radio_ble
 ../.venv-pio/bin/python bin/uf2conv/uf2conv.py -f 0xADA52840 -c \
-    .pio/build/t1000e_companion_radio_ble/firmware.hex -o ../RABANITO-meshcore-v1.18.0-sri6-ble.uf2
+    .pio/build/t1000e_companion_radio_ble/firmware.hex -o ../RABANITO-meshcore-v1.18.0-sri7-ble.uf2
 ```
 
 Notas:
@@ -81,7 +81,7 @@ Notas:
 ```
 
 - **Nodos de campo:** miden y mandan solos (sin app ni PC) por el canal privado **"SRI"**: alertas de caída/golpe
-  al momento y un **reporte cada 10 s** (posición GPS, batería, temperatura, aceleración mín/máx). Cada mensaje
+  al momento y un **reporte adaptativo** (cada 3 s en movimiento, 30 s quieto; posición GPS, batería, temperatura, aceleración mín/máx). Cada mensaje
   lleva la **identidad fija** del nodo (`i` + inicio de su llave pública), así dos nodos con el mismo nombre no se
   confunden y SRI lo reconoce aunque cambie de nombre.
 - **FARO (base):** queda fijo, conectado a la PC por **cable USB** (SRI lo encuentra solo entre los puertos USB); solo escucha el canal y pasa los mensajes. No
@@ -96,7 +96,7 @@ Cualquier placa con MeshCore (u otro firmware que hable MeshCore) sirve como nod
 `sha256("SRI:" + frase)[:16]`). MeshCore antepone el nombre del nodo (`NOMBRE: `). Campos separados por espacio;
 los que no tenga la placa se omiten (salvo los marcados como obligatorios).
 
-**Reporte periódico** (cada 10 s en sri6; no más seguido que cada 5 s):
+**Reporte en texto** (lleva el nombre; en sri7 sale cada 60 s, los demás van en binario):
 
 ```
 SRI1 POS @<lat>,<lon> t<hora> [b<mV>] [e<seg>] [a<mín>/<máx>] [c<°C>] [i<id>]
@@ -112,6 +112,22 @@ SRI1 POS @25.661943,-100.422518 t1794953624 b4018 e3 a0.92/1.85 c23.7 id9a3737d
 | `a` | Aceleración mínima/máxima en g desde el reporte anterior |
 | `c` | Temperatura del sensor del nodo en °C (no la del chip) |
 | `i` | Identidad: 8 caracteres hex, inicio de la llave pública del nodo. Muy recomendado |
+
+**Reporte binario compacto** (sri7): datagrama de canal (`sendGroupData`, en la app `CHANNEL_DATA_RECV`) con
+`data_type` **`0xFF53`** (rango de pruebas de MeshCore, sin registro) y 25 bytes, little endian. Ocupa ~0.3 s de
+aire en vez de ~0.65 s del texto. No lleva nombre: SRI lo toma del último reporte en texto con la misma identidad.
+
+| Bytes | Campo |
+|---|---|
+| 0 | Versión del formato = 1 |
+| 1-4 | Identidad: 4 primeros bytes de la llave pública |
+| 5-8 / 9-12 | Latitud / longitud × 10⁶ (int32; 0 = sin GPS) |
+| 13-14 | Batería en mV |
+| 15-16 | Segundos desde la última posición GPS válida (0xFFFF = nunca) |
+| 17-18 / 19-20 | Aceleración mínima / máxima desde el reporte anterior, en centésimas de g (0xFFFF = sin dato) |
+| 21-22 | Temperatura en décimas de °C (int16; 0x8000 = sin dato) |
+| 23 | Banderas: bit 0 = en movimiento |
+| 24 | Número de reporte (0-255, vuelve a 0; SRI lo usa para no contar repetidos) |
 
 **Alerta** (al detectar; se repite 3 veces cada 20 s porque los mensajes de canal no tienen acuse):
 
@@ -142,7 +158,7 @@ nodo. Si el nodo no tiene el canal "SRI", no manda nada (la alarma sigue en el n
 nodo" con la **misma frase** en todos (la llave del canal sale de la frase). Valor `alerta` en las custom vars:
 `tipo|pico*100|dif*100|epoch|cuenta` mientras falta mandarla.
 
-## Reporte periódico (sri3: cada 4 min; desde sri6: cada 10 s)
+## Reporte periódico (sri3: cada 4 min; sri6: cada 10 s; sri7: adaptativo)
 
 Además de las alertas, cada **10 s** (sri3 a sri5: cada 4 minutos) el nodo manda su posición GPS por el mismo canal privado **"SRI"** (no por
 el anuncio, que es público), para que la base vea por dónde va el senderista:
@@ -156,7 +172,12 @@ SRI1 POS @25.662300,-100.422100 t1794705000 b3920
 porque la alerta ya lleva la posición. Los nodos sin GPS (como FARO) nunca la mandan. El intervalo se cambia al
 compilar con `-D SRI_POS_INTERVALO_MS=...`.
 
-**Por qué 10 s y no cada segundo:** cada reporte (~100 bytes) ocupa **~0.65 s de aire** con SF8 / BW 62.5 kHz.
+**sri7 - adaptativo:** cada **3 s** mientras el nodo se mueve y hasta 20 s después del último movimiento (lo decide
+el mismo criterio de reposo del detector), cada **30 s** quieto; si empieza a moverse adelanta el reporte. Variables
+`rapido_s` (2-60 s) y `reporte_s` (5-600 s), se cambian desde SRI con el nodo conectado directo y vuelven a 3 s / 30 s
+al reiniciar. La mayoría van en binario (ver arriba); uno en texto cada 60 s.
+
+**Por qué no cada segundo (sri6):** cada reporte (~100 bytes) ocupa **~0.65 s de aire** con SF8 / BW 62.5 kHz.
 Cada segundo el radio estaría transmitiendo el 65 % del tiempo y los reportes chocarían entre sí y con las
 alertas. Cada 10 s es ~6.5 % del canal por nodo, deja lugar a las alertas y a varios nodos de campo. El intervalo
 se cambia sin recompilar con la variable `reporte_s` (5 a 600 s; vuelve a 10 s al reiniciar), desde SRI con el

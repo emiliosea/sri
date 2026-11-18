@@ -771,6 +771,7 @@ def make_source(mode, target):
             MeshCoreSource(state, track, dev_path=target)
         src.on_impact = log_impact
         src.on_alerta_red = alerta_red
+        src.on_cambio = avisar_cambio
         cal = load_calibration()
         if cal:
             src.calibration = cal_string(cal)
@@ -867,6 +868,41 @@ def api_impact_threshold():
     if not 1.0 <= g <= 55:
         return jsonify({"ok": False, "error": "La diferencia mínima debe estar entre 1 y 55 g"}), 400
     return jsonify(source.impact_cmd("umbral_g", f"{g:.2f}"))
+
+
+# ---------------------------------------------------------------------------
+# En vivo: la página abre /api/en-vivo (Server-Sent Events) y el servidor le avisa en cuanto llega un reporte o
+# una alerta de un nodo de campo, para que no espere a su consulta cada 3 s.
+# ---------------------------------------------------------------------------
+_cambio = threading.Condition()
+_version_datos = [0]
+
+
+def avisar_cambio():
+    with _cambio:
+        _version_datos[0] += 1
+        _cambio.notify_all()
+
+
+@app.route("/api/en-vivo")
+def api_en_vivo():
+    from flask import Response
+
+    def eventos():
+        v = _version_datos[0]
+        yield "retry: 3000\n\n"
+        while True:
+            with _cambio:
+                _cambio.wait(15)
+                nueva = _version_datos[0]
+            if nueva != v:
+                v = nueva
+                yield f"data: {v}\n\n"
+            else:
+                yield ": sigo aquí\n\n"                # mantiene viva la conexión
+
+    return Response(eventos(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.route("/api/reporte", methods=["POST"])
@@ -1813,7 +1849,7 @@ def main():
         print(f"Firmware: {FIRMWARE}", flush=True)
 
     print(f"Abre http://localhost:{args.http_port}", flush=True)
-    app.run(host=args.host, port=args.http_port, debug=False)
+    app.run(host=args.host, port=args.http_port, debug=False, threaded=True)   # threaded: /api/en-vivo
 
 
 if __name__ == "__main__":
