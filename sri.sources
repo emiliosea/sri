@@ -1,0 +1,6 @@
+# Repositorio de SRI: con esto "sudo apt update && sudo apt upgrade" instala las versiones nuevas.
+# Lo instala el paquete sri; las versiones se publican con empaquetar/publicar.sh.
+Types: deb
+URIs: https://emiliosea.github.io/sri/
+Suites: ./
+Signed-By: /usr/share/keyrings/sri-archive-keyring.gpg

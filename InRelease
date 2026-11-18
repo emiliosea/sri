@@ -1,0 +1,30 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Date: Wed, 18 Nov 2026 01:36:06 +0000
+Description: Sistema de Respuesta Inmediata (github.com/emiliosea/sri)
+Label: SRI
+Origin: SRI
+MD5Sum:
+ dd385f5cb048c8d0589e7f2bc21fc2dc             2901 Packages
+ 9e522b637efaa52b7b5a9a6c865aa895             1093 Packages.gz
+ c9ae567e1e7e18fc2df4158dedd35299              132 Release
+SHA1:
+ 98652fb5689cc7d0fbf2fde5302eaa40c5c2880c             2901 Packages
+ c559ae3bfa21e98da1ebacb15fd8ee40e838cc8a             1093 Packages.gz
+ 5fe9a4b38cc26e1c2682f1fa55befd17e8fa3844              132 Release
+SHA256:
+ dbf1ce61e2246101a857546f6b4bd94fe8e0d5ded09119741fe8490e71730018             2901 Packages
+ 7ebead684fbb25541c5cd49de772ac5e2916b2129593a54d5b7efb2011ad6269             1093 Packages.gz
+ 0887b90a091fb59959aebe408ce658e788ab2cab1bd4477e4fc243ba4bb797b2              132 Release
+SHA512:
+ ceb4fd50fcc277eab2d9ed7588f12a0bbbf72a69b9c822d92cf4326b4071087af62711b0e152e3678971cc79253964c6ea9c62afcf11651baba127301b987e6b             2901 Packages
+ 6c017276f0b4fbb8dfabc6a5f36b3248aec15acaf69216fb2bc91af8869042d6285e9220db5865fe7c7a32c412e7356f188393b6a9dfb2455b510eab7500068a             1093 Packages.gz
+ d19f44e43d337093c4a03bf3628562401b28375dbfffd724c58107a51a228791995f1fe37a13f9e8bc77c78069fa0ad6c75cfd8b1256dd94417cfaab6540c0a9              132 Release
+-----BEGIN PGP SIGNATURE-----
+
+iIoEARYKADIWIQRNBwmkpXXz4LD80DBYKm9ArkZuWwUCav0BBhQcZW1pbGlvc2Vh
+QHByb3Rvbi5tZQAKCRBYKm9ArkZuW3YpAP0QT6YQ/mNYq9jpVJ6rdJgvNATQCWOx
+voWfUdYhwIXmVQD+KZwiirh2i9fiWBIRjDSBjFVdqCnsKvubMHuIMu7U/gg=
+=UfSf
+-----END PGP SIGNATURE-----

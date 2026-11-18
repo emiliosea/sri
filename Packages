@@ -1,0 +1,66 @@
+Package: sri
+Architecture: amd64
+Version: 0.6.6
+Priority: optional
+Section: misc
+Maintainer: emiliosea <emiliosea@proton.me>
+Installed-Size: 63604
+Depends: bluez, curl, adduser, python3, python3-gi, gir1.2-gtk-3.0, gir1.2-webkit2-4.1
+Recommends: network-manager, libnotify-bin
+Suggests: chromium
+Filename: ./sri_0.6.6_amd64.deb
+Size: 22568516
+MD5sum: 82501664201230c1286df8c50d1170e1
+SHA1: 2059bee2e988b9a905e2e7d430a0f9c014c434ad
+SHA256: a5e88ab91c5e040805fd17fdff06ceaad3e80bdda0170ad1618d40d3882db423
+SHA512: 72a779185ee72e7ede2bc77d0718a8ec1df0e60179036a5a4a562ee8570e815c7c5e90d6c21bc7b9c2af52bc9fbde5de5d41b99033c513b4211f4e32c1627704
+Homepage: https://github.com/emiliosea/sri
+Description: SRI - Sistema de Respuesta Inmediata, Huasteca
+ Seguimiento de un nodo LoRa MeshCore (RABANITO): ubicación GPS, detector de
+ caídas y golpes, ruta, terreno, cuerpos de agua y clima. Incluye el servicio
+ (systemd) y una ventana de pantalla completa para la estación.
+
+Package: sri
+Architecture: amd64
+Version: 0.6.7
+Priority: optional
+Section: misc
+Maintainer: emiliosea <emiliosea@proton.me>
+Installed-Size: 63604
+Depends: bluez, curl, adduser, python3, python3-gi, gir1.2-gtk-3.0, gir1.2-webkit2-4.1
+Recommends: network-manager, libnotify-bin
+Suggests: chromium
+Filename: ./sri_0.6.7_amd64.deb
+Size: 22570760
+MD5sum: 36c127812efc0d1378f9b0360dcbd795
+SHA1: 816c8be03c880573659d6a4fd4ed4800c15487ce
+SHA256: 10468880aed90bd5f148ec3847fc51163688915e49dbadd76496061c68354ac0
+SHA512: 8e1397b02f905c951d8b63e177598f44d03c27b073990e5907413570e1f9a3fb876a192d6407448e842296a758e1c236ee4b475ef6a69e552c4b0f89189e1424
+Homepage: https://github.com/emiliosea/sri
+Description: SRI - Sistema de Respuesta Inmediata, Huasteca
+ Seguimiento de un nodo LoRa MeshCore (RABANITO): ubicación GPS, detector de
+ caídas y golpes, ruta, terreno, cuerpos de agua y clima. Incluye el servicio
+ (systemd) y una ventana de pantalla completa para la estación.
+
+Package: sri
+Architecture: amd64
+Version: 0.6.8
+Priority: optional
+Section: misc
+Maintainer: emiliosea <emiliosea@proton.me>
+Installed-Size: 63604
+Depends: bluez, curl, adduser, python3, python3-gi, gir1.2-gtk-3.0, gir1.2-webkit2-4.1
+Recommends: network-manager, libnotify-bin
+Suggests: chromium
+Filename: ./sri_0.6.8_amd64.deb
+Size: 22568456
+MD5sum: 81d850d6ce530ce881d7c3586c154d21
+SHA1: 908eaa8269f23639ffe54ede02f010c2b7e70707
+SHA256: befd7668af13334a2c5d95c5eb0643f25eb4717f2a13816a5df222ef3323588c
+SHA512: 3ff303092d17148feb156cd1653cabf8613f80a1dcf6965fccf69264fc6a67c09ac890cb19c5a6ec5857ebbf30431a3ebb4b5ad50886cb9051bbacc1ccdd3065
+Homepage: https://github.com/emiliosea/sri
+Description: SRI - Sistema de Respuesta Inmediata, Huasteca
+ Seguimiento de un nodo LoRa MeshCore (RABANITO): ubicación GPS, detector de
+ caídas y golpes, ruta, terreno, cuerpos de agua y clima. Incluye el servicio
+ (systemd) y una ventana de pantalla completa para la estación.
+
