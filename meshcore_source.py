@@ -397,6 +397,8 @@ class MeshCoreSource:
             prev = self._pos_red.get(clave)
             if binario and prev is not None:
                 pos["nombre"] = prev["nombre"]
+            if not binario and prev is not None and "moviendo" in prev:
+                pos["moviendo"] = prev["moviendo"]           # el texto no lo trae: conservar el último
             # Nuevo = distinta "hora" que el anterior (no "mayor"): al reiniciar, el reloj del nodo se atrasa y
             # sus reportes parecerían viejos. La misma hora (o el mismo número de reporte) = mensaje repetido.
             nueva = prev is None or pos["epoch"] != prev["epoch"]

@@ -314,6 +314,9 @@ llegó con RSSI -12 dBm). Para comparar alcance usar el SNR de los paquetes y la
 - **sri7 cargado en RABANITO (18 nov, 00:22)** y probado con SRI 0.6.7 conectado a FARO: en movimiento llegan
   reportes **cada 3 s**, quieto **cada 30 s**; el primero en texto (con nombre) a los 60 s. Corrección: antes del
   primer texto el nodo salía como "Nodo d9a3737d" junto al RABANITO guardado; ahora toma el nombre guardado.
+- **Pantalla de FARO (18 nov):** su OLED lista los nodos de campo que escucha (nombre, hace cuánto, batería, `*` en
+  movimiento) y una caída la enciende con el nombre del nodo. Los reportes del canal ya no salen como mensajes.
+  La pantalla queda **siempre encendida** (base con USB), con brillo bajo y desplazamiento lento contra el desgaste.
 - Opción descartada por ahora: radio más rápido (SF7 / 125 kHz, 0.18 s por reporte) a cambio de ~7 dB (la mitad del
   alcance); revisar después de la prueba de alcance.
 

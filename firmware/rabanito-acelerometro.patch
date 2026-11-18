@@ -1,8 +1,33 @@
 diff --git a/examples/companion_radio/MyMesh.cpp b/examples/companion_radio/MyMesh.cpp
-index f32ea67..c8985e6 100644
+index f32ea67..da5ec5d 100644
 --- a/examples/companion_radio/MyMesh.cpp
 +++ b/examples/companion_radio/MyMesh.cpp
-@@ -2431,6 +2431,206 @@ void MyMesh::loop() {
+@@ -1,4 +1,5 @@
+ #include "MyMesh.h"
++#include "SriCampo.h"
+ 
+ #include <Arduino.h> // needed for PlatformIO
+ #ifdef ENABLE_WIFI_INTERFACE
+@@ -593,6 +594,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
+     if (!getChannel(channel_idx, channel_details)) {
+       strcpy(channel_details.name, "Unknown");
+     }
++    if (strcmp(channel_details.name, "SRI") == 0) sriCampoTexto(text);   // SRI: tabla para la pantalla
+     _listener->onChannelMessageRecv(pkt, channel_details, text);
+     _listener->onQueueSizeChanged(offline_queue_len);
+   }
+@@ -631,6 +633,10 @@ void MyMesh::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *
+     frame[0] = PUSH_CODE_MSG_WAITING; // send push 'tickle'
+     _serial->writeFrame(frame, 1);
+   }
++  {
++    ChannelDetails cd;                                 // SRI: reporte binario de un nodo de campo (pantalla)
++    if (getChannel(channel_idx, cd) && strcmp(cd.name, "SRI") == 0) sriCampoDatos(data_type, data, data_len);
++  }
+   if (_listener) {
+     _listener->onChannelDataRecv(pkt, channel, data_type, data, data_len);
+   }
+@@ -2431,6 +2437,206 @@ void MyMesh::loop() {
      saveContacts();
      dirty_contacts_expiry = 0;
    }
@@ -209,6 +234,90 @@ index f32ea67..c8985e6 100644
  }
  
  bool MyMesh::advert() {
+@@ -2452,3 +2658,83 @@ bool MyMesh::advert() {
+ bool MyMesh::hasPendingWork() const {
+   return _mgr->getOutboundTotal() > 0 || dirty_contacts_expiry != 0;
+ }
++
++// ---------------------------------------------------------------------------------------------
++// SRI: tabla de nodos de campo escuchados (para la pantalla de la base). Ver SriCampo.h.
++// ---------------------------------------------------------------------------------------------
++SriNodo sri_nodos[SRI_MAX_NODOS];
++
++static SriNodo* sri_buscar(const uint8_t* id, const char* nombre) {
++  SriNodo* libre = NULL;
++  SriNodo* viejo = NULL;
++  for (int i = 0; i < SRI_MAX_NODOS; i++) {
++    SriNodo* n = &sri_nodos[i];
++    if (!n->usado) { if (!libre) libre = n; continue; }
++    if (id && memcmp(n->id, id, 4) == 0) return n;
++    if (!id && nombre && strcmp(n->nombre, nombre) == 0) return n;
++    if (!viejo || (long)(n->visto_ms - viejo->visto_ms) < 0) viejo = n;
++  }
++  SriNodo* n = libre ? libre : viejo;              // tabla llena: se reemplaza el que lleva más sin oírse
++  memset(n, 0, sizeof(*n));
++  n->usado = true;
++  if (id) {
++    memcpy(n->id, id, 4);
++    mesh::Utils::toHex(n->nombre, n->id, 4);
++  }
++  if (nombre) { strncpy(n->nombre, nombre, sizeof(n->nombre) - 1); n->nombre[sizeof(n->nombre) - 1] = 0; }
++  return n;
++}
++
++static bool sri_hex4(const char* p, uint8_t* out) {
++  for (int i = 0; i < 4; i++) {
++    unsigned v;
++    if (!isxdigit((unsigned char)p[2*i]) || !isxdigit((unsigned char)p[2*i+1]) || sscanf(p + 2*i, "%2x", &v) != 1)
++      return false;
++    out[i] = (uint8_t)v;
++  }
++  return true;
++}
++
++SriNodo* sriCampoTexto(const char* text) {
++  const char* sep = strstr(text, ": SRI1 ");
++  if (!sep) return NULL;
++  char nombre[17];
++  int ln = sep - text;
++  if (ln > 16) ln = 16;
++  memcpy(nombre, text, ln); nombre[ln] = 0;
++  const char* cuerpo = sep + 7;
++  uint8_t id[4];
++  const char* pi = strstr(cuerpo, " i");
++  bool hay_id = false;
++  while (pi) {                                        // " i" seguido de 8 hex (la identidad, sri5)
++    if (strlen(pi + 2) >= 8 && sri_hex4(pi + 2, id)) { hay_id = true; break; }
++    pi = strstr(pi + 2, " i");
++  }
++  SriNodo* n = sri_buscar(hay_id ? id : NULL, nombre);
++  strncpy(n->nombre, nombre, sizeof(n->nombre) - 1);
++  n->visto_ms = millis();
++  if (strncmp(cuerpo, "POS ", 4) == 0) {
++    const char* pb = strstr(cuerpo, " b");
++    if (pb) n->mv = (uint16_t)atol(pb + 2);
++  } else if (strncmp(cuerpo, "CAIDA", 5) == 0 || strncmp(cuerpo, "GOLPE", 5) == 0) {
++    memcpy(n->tipo, cuerpo, 5); n->tipo[5] = 0;
++    n->alerta = true;
++    n->alerta_ms = millis();
++  }
++  return n;
++}
++
++SriNodo* sriCampoDatos(uint16_t data_type, const uint8_t* d, size_t len) {
++  if (data_type != SRI_DATA_TYPE || len < 25 || d[0] != 1) return NULL;
++  SriNodo* n = sri_buscar(&d[1], NULL);
++  n->visto_ms = millis();
++  n->mv = (uint16_t)(d[13] | (d[14] << 8));
++  n->moviendo = d[23] & 1;
++  return n;
++}
++
++int sriBateriaPct(uint16_t mv) {
++  if (!mv) return -1;
++  int p = (int)((mv - 3300L) * 100L / (4150 - 3300));
++  return p < 0 ? 0 : (p > 100 ? 100 : p);
++}
 diff --git a/examples/companion_radio/MyMesh.h b/examples/companion_radio/MyMesh.h
 index 944790d..c8b6281 100644
 --- a/examples/companion_radio/MyMesh.h
@@ -222,6 +331,134 @@ index 944790d..c8b6281 100644
    bool isValidClientRepeatFreq(uint32_t f) const;
  
    // helpers, short-cuts
+diff --git a/examples/companion_radio/SriCampo.h b/examples/companion_radio/SriCampo.h
+new file mode 100644
+index 0000000..2c5a021
+--- /dev/null
++++ b/examples/companion_radio/SriCampo.h
+@@ -0,0 +1,26 @@
++#pragma once
++// SRI: nodos de campo que la base (FARO) escucha por el canal "SRI". Los llena MyMesh al recibir reportes y
++// alertas (texto "SRI1 ..." o el binario sri7, data_type 0xFF53) y los muestra la pantalla (ui-new/UITask.cpp).
++#include <Arduino.h>
++
++#define SRI_MAX_NODOS 6
++
++struct SriNodo {
++  bool usado;
++  uint8_t id[4];            // inicio de la llave pública del nodo
++  char nombre[17];          // del reporte en texto; mientras no llega, el id en hex
++  unsigned long visto_ms;   // millis() del último reporte
++  uint16_t mv;              // batería (0 = sin dato)
++  bool moviendo;
++  bool alerta;              // hubo una caída/golpe que la pantalla debe mostrar
++  char tipo[7];             // "CAIDA" / "GOLPE"
++  unsigned long alerta_ms;
++};
++
++extern SriNodo sri_nodos[SRI_MAX_NODOS];
++
++// Procesan un mensaje del canal "SRI". Devuelven el nodo actualizado (o NULL si no era de SRI).
++SriNodo* sriCampoTexto(const char* text);
++SriNodo* sriCampoDatos(uint16_t data_type, const uint8_t* data, size_t len);
++// Batería en % aproximado (igual que SRI en la PC).
++int sriBateriaPct(uint16_t mv);
+diff --git a/examples/companion_radio/ui-new/UITask.cpp b/examples/companion_radio/ui-new/UITask.cpp
+index bc25de7..1a81fb2 100644
+--- a/examples/companion_radio/ui-new/UITask.cpp
++++ b/examples/companion_radio/ui-new/UITask.cpp
+@@ -1,6 +1,7 @@
+ #include "UITask.h"
+ #include <helpers/TxtDataHelpers.h>
+ #include "../MyMesh.h"
++#include "../SriCampo.h"
+ #include "target.h"
+ #include <time.h>
+ #ifdef ENABLE_WIFI_INTERFACE
+@@ -279,6 +280,43 @@ public:
+       }
+     }
+ 
++    // SRI: en la base, la primera página lista los nodos de campo que escucha por el canal "SRI"
++    bool hay_campo = false;
++    for (int k = 0; k < SRI_MAX_NODOS; k++) hay_campo |= sri_nodos[k].usado;
++    if (_page == HomePage::FIRST && hay_campo) {
++      display.setColor(UIColor::primary_txt);
++      display.setTextSize(1);
++      // desplazamiento lento (0-2 px a lo ancho, 0-1 px a lo alto, cambia cada 5 min) para no marcar el OLED
++      unsigned long paso = millis() / 300000UL;
++      int dx = paso % 3, dy = (paso / 3) % 2;
++      int y = 20 + dy;
++      for (int k = 0; k < SRI_MAX_NODOS && y <= display.height() - 10; k++) {
++        SriNodo& n = sri_nodos[k];
++        if (!n.usado) continue;
++        unsigned long s = (millis() - n.visto_ms) / 1000;
++        char hace[8];
++        if (s < 60) snprintf(hace, sizeof(hace), "%lus", s);
++        else if (s < 3600) snprintf(hace, sizeof(hace), "%lum", s / 60);
++        else snprintf(hace, sizeof(hace), ">1h");
++        char nom[11];
++        display.translateUTF8ToBlocks(nom, n.nombre, sizeof(nom));
++        bool alerta_reciente = n.alerta && (millis() - n.alerta_ms) < 10UL * 60UL * 1000UL;
++        if (alerta_reciente) {
++          display.setColor(UIColor::warning_txt);
++          snprintf(tmp, sizeof(tmp), "%-10s %s!", nom, n.tipo);
++        } else {
++          int pct = sriBateriaPct(n.mv);
++          char bat[6] = "";
++          if (pct >= 0) snprintf(bat, sizeof(bat), "%d%%", pct);
++          snprintf(tmp, sizeof(tmp), "%-10s%4s %4s%s", nom, hace, bat, n.moviendo ? "*" : "");
++          display.setColor(UIColor::primary_txt);
++        }
++        display.setCursor(dx, y);
++        display.print(tmp);
++        y += 11;
++      }
++      return 1000;                                    // el "hace N s" cambia cada segundo
++    }
+     if (_page == HomePage::FIRST) {
+       display.setColor(UIColor::primary_txt);
+       #ifdef ENABLE_WIFI_INTERFACE
+@@ -817,6 +855,26 @@ void UITask::onMessageRecv(mesh::Packet *pkt, const ContactInfo &from, uint8_t t
+ }
+ 
+ void UITask::onChannelMessageRecv(mesh::Packet *pkt, ChannelDetails& channel_details, const char* text) {
++  // SRI: los reportes de los nodos de campo no se muestran como mensaje nuevo (llegan cada pocos segundos; la
++  // pantalla de inicio los lista). Una caída o golpe sí: enciende la pantalla y muestra el nodo.
++  if (strcmp(channel_details.name, "SRI") == 0 && strstr(text, ": SRI1 ") != NULL) {
++    const char* cuerpo = strstr(text, ": SRI1 ") + 7;
++    if (strncmp(cuerpo, "CAIDA", 5) == 0 || strncmp(cuerpo, "GOLPE", 5) == 0) {
++      char aviso[40];
++      int ln = strstr(text, ": SRI1 ") - text;
++      snprintf(aviso, sizeof(aviso), "%.5s: %.*s", cuerpo, ln > 14 ? 14 : ln, text);
++      showAlert(aviso, 30000);
++      if (_display != NULL) {
++        if (!_display->isOn()) _display->turnOn();
++        _auto_off = millis() + 30000;
++        _next_refresh = 100;
++      }
++      notify(UIEventType::channelMessage);
++    } else if (_display != NULL && _display->isOn()) {
++      _next_refresh = 100;                            // actualizar la lista de nodos de campo
++    }
++    return;
++  }
+   uint8_t path_len = pkt->isRouteFlood() ? pkt->path_len : 0xFF;
+   ((MsgPreviewScreen *) msg_preview)->addPreview(path_len, channel_details.name, text);
+   setCurrScreen(msg_preview);
+@@ -1048,6 +1106,12 @@ void UITask::loop() {
+     if (board.isExternalPowered()) {
+       _auto_off = millis() + AUTO_OFF_MILLIS;
+     }
++#endif
++#ifdef SRI_PANTALLA_FIJA
++    // SRI: FARO es la base fija, siempre conectada por USB: la pantalla no se apaga (brillo bajo y la lista se
++    // desplaza unos píxeles cada 5 min para no marcar el OLED; ver SSD1306Display y la página de inicio)
++    _auto_off = millis() + AUTO_OFF_MILLIS;
++    if (!_display->isOn()) _display->turnOn();
+ #endif
+     if (millis() > _auto_off) {
+       _display->turnOff();
 diff --git a/src/helpers/esp32/SerialBLEInterface.cpp b/src/helpers/esp32/SerialBLEInterface.cpp
 index 6371cf3..82ad1ec 100644
 --- a/src/helpers/esp32/SerialBLEInterface.cpp
@@ -311,11 +548,42 @@ index 6ed16bc..78253fc 100644
    bleuart.begin();
    bleuart.setRxCallback(onBleUartRX);
  
+diff --git a/src/helpers/ui/SSD1306Display.cpp b/src/helpers/ui/SSD1306Display.cpp
+index ab2d77f..6720f88 100644
+--- a/src/helpers/ui/SSD1306Display.cpp
++++ b/src/helpers/ui/SSD1306Display.cpp
+@@ -25,7 +25,14 @@ bool SSD1306Display::begin() {
+   #ifdef DISPLAY_ROTATION
+   display.setRotation(DISPLAY_ROTATION);
+   #endif
+-  return display.begin(SSD1306_SWITCHCAPVCC, DISPLAY_ADDRESS, true, false) && i2c_probe(Wire, DISPLAY_ADDRESS);
++  bool ok = display.begin(SSD1306_SWITCHCAPVCC, DISPLAY_ADDRESS, true, false) && i2c_probe(Wire, DISPLAY_ADDRESS);
++#ifdef SRI_PANTALLA_FIJA
++  if (ok) {                                         // SRI: brillo bajo también desde el arranque
++    display.ssd1306_command(SSD1306_SETCONTRAST);
++    display.ssd1306_command(0x18);
++  }
++#endif
++  return ok;
+ }
+ 
+ void SSD1306Display::turnOn() {
+@@ -35,6 +42,10 @@ void SSD1306Display::turnOn() {
+     if (_peripher_power) begin();  // re-init display after power was cut
+   }
+   display.ssd1306_command(SSD1306_DISPLAYON);
++#ifdef SRI_PANTALLA_FIJA
++  display.ssd1306_command(SSD1306_SETCONTRAST);   // SRI: brillo bajo, la pantalla de FARO queda siempre encendida
++  display.ssd1306_command(0x18);
++#endif
+ }
+ 
+ void SSD1306Display::turnOff() {
 diff --git a/variants/heltec_v4/platformio.ini b/variants/heltec_v4/platformio.ini
-index 76e8e71..fa1befd 100644
+index 76e8e71..fbe9648 100644
 --- a/variants/heltec_v4/platformio.ini
 +++ b/variants/heltec_v4/platformio.ini
-@@ -225,6 +225,22 @@ lib_deps =
+@@ -225,6 +225,23 @@ lib_deps =
    ${heltec_v4_oled.lib_deps}
    densaugeo/base64 @ ~1.4.0
  
@@ -333,6 +601,7 @@ index 76e8e71..fa1befd 100644
 +build_flags =
 +  ${env:heltec_v4_companion_radio_usb.build_flags}
 +  -D OFFLINE_QUEUE_SIZE=256
++  -D SRI_PANTALLA_FIJA            ; pantalla siempre encendida (base fija con USB), brillo bajo
 +  -D FIRMWARE_VERSION='"v1.18.0-sri5"'
 +
  [env:heltec_v4_companion_radio_wifi]

@@ -221,6 +221,13 @@ de prueba de fábrica ("IO Output test") y el 17 nov 2026 se le cargó MeshCore 
 | Potencia | 10 (valor del SX1262; con el amplificador de la placa sale ~22 dBm según MeshCore). SRI muestra la salida en la antena y marca la temperatura como "del chip" |
 | Sensores | No tiene acelerómetro ni GPS: no detecta caídas por sí solo. La "temperatura" que reporta es la del chip (~47 °C), no la del ambiente |
 
+**Pantalla OLED:** la primera página de inicio lista los **nodos de campo** que FARO escucha por el canal "SRI":
+nombre, hace cuánto llegó su último reporte, batería y `*` si está en movimiento (hasta 5 a la vez). Una caída o
+golpe enciende la pantalla 30 s con "CAIDA: NOMBRE" y el nodo queda marcado 10 min. Los reportes del canal SRI ya no
+aparecen como "mensaje nuevo". Con `SRI_PANTALLA_FIJA` (en el objetivo USB de FARO) la pantalla **no se apaga**: FARO
+siempre tiene corriente por USB; para no marcar el OLED usa brillo bajo y la lista se desplaza 1-2 píxeles cada 5 min.
+Código: `examples/companion_radio/SriCampo.h` (tabla), `MyMesh.cpp` (la llena) y `ui-new/UITask.cpp` (la dibuja).
+
 **Flashear** (por USB, sin botones):
 
 ```bash
